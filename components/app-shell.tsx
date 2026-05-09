@@ -458,7 +458,7 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to process command");
+        throw new Error(await readErrorMessage(response, "Failed to process command"));
       }
 
       const result = await response.json();
