@@ -121,6 +121,12 @@ export async function clearGuestCookie() {
   cookieStore.delete(GUEST_COOKIE);
 }
 
+export async function clearAuthCookies() {
+  const cookieStore = await cookies();
+  cookieStore.delete(ACCESS_COOKIE);
+  cookieStore.delete(REFRESH_COOKIE);
+}
+
 export async function setSessionCookies(session: {
   access_token: string;
   refresh_token: string;
@@ -146,8 +152,7 @@ export async function setSessionCookies(session: {
 }
 
 export async function clearSessionCookies() {
+  await clearAuthCookies();
   const cookieStore = await cookies();
-  cookieStore.delete(ACCESS_COOKIE);
-  cookieStore.delete(REFRESH_COOKIE);
   cookieStore.delete(GUEST_COOKIE);
 }

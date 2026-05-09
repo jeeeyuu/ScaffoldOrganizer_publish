@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { createAuthClient, clearGuestCookie, getGuestCookie, isAdminEmail, setSessionCookies } from "@/lib/auth";
+import { createAuthClient, clearAuthCookies, clearGuestCookie, getGuestCookie, isAdminEmail, setSessionCookies } from "@/lib/auth";
 import { getAuthConfirmedUrl } from "@/lib/env";
 import { mergeGuestSessionIntoUser } from "@/lib/repository";
 
@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ ok: true, needsConfirmation: !data.session });
   } catch (error) {
+    await clearAuthCookies();
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to sign up" },
       { status: 400 },

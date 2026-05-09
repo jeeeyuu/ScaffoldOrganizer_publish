@@ -643,7 +643,7 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Authentication failed");
+        throw new Error(await readErrorMessage(response, "Authentication failed"));
       }
 
       const result = (await response.json()) as { needsConfirmation?: boolean };
