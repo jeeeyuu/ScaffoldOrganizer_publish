@@ -25,8 +25,6 @@ import type {
   ItemSource,
   ItemStatus,
   ItemType,
-  RouterAction,
-  RouterResult,
   ScheduleRecord,
   StatusEventRecord,
   StatusSnapshot,
@@ -60,13 +58,6 @@ type RawBrainDumpResult = {
   currentState?: unknown;
   rawTodos?: unknown;
   items?: unknown;
-};
-
-type RawRouterResult = {
-  mode?: unknown;
-  actions?: unknown;
-  userFeedback?: unknown;
-  user_feedback?: unknown;
 };
 
 interface DemoStore {
@@ -410,19 +401,81 @@ function promptFor(role: (typeof PROMPT_REGISTRY)[number]["role"]) {
 
 function inferFallbackPriority(text: string) {
   const normalized = text.toLowerCase();
-  if (/긴급|급함|오늘|마감|deadline|장애|오류|에러|안됨|실패|중단|critical|urgent/.test(normalized)) {
+  if (/긴급|급함|오늘|마감|deadline|장애|오류|에러|안됨|실패|중단|저장\s*안|로그인\s*안|데이터\s*손실|critical|urgent/.test(normalized)) {
     return 1;
   }
-  if (/확인|점검|검토|테스트|리뷰|수정|반영|문제|bug|fix|review|test/.test(normalized)) {
+  if (/나중|언젠가|장기|아이디어|생각|후보|낮은\s*리스크|polish|maybe|someday/.test(normalized)) {
+    return 4;
+  }
+  if (
+    /핵심|사용자|이탈|정확도|품질|주요|critical path|core/.test(normalized) &&
+    /확인|점검|검토|테스트|리뷰|문제|검증|review|test/.test(normalized)
+  ) {
     return 2;
+  }
+  if (/수정|버그|bug|fix/.test(normalized)) {
+    return 2;
+  }
+  if (/확인|점검|검토|테스트|리뷰|반영|문제|검증|review|test/.test(normalized)) {
+    return 3;
   }
   if (/정리|작성|생성|만들|구현|연동|설정|공부|학습|조사|확장/.test(normalized)) {
     return 3;
   }
-  if (/나중|언젠가|장기|아이디어|생각|후보|maybe|someday/.test(normalized)) {
+  return 3;
+}
+
+function prioritySortScore(item: BrainDumpItemDraft) {
+  const text = `${item.title} ${item.content}`.toLowerCase();
+  if (/긴급|급함|오늘|마감|장애|오류|에러|안됨|실패|중단|저장\s*안|로그인\s*안|데이터\s*손실/.test(text)) {
+    return 1;
+  }
+  if (/핵심|사용자|이탈|정확도|품질|주요/.test(text)) {
+    return 2;
+  }
+  if (/수정|버그|bug|fix/.test(text)) {
+    return 2.2;
+  }
+  if (/확인|점검|검토|테스트|리뷰|검증|review|test/.test(text)) {
+    return 3;
+  }
+  if (/정리|문서|작성|공부|학습|조사/.test(text)) {
+    return 3.4;
+  }
+  if (/나중|언젠가|장기|아이디어|후보|polish|maybe|someday/.test(text)) {
     return 4;
   }
-  return 3;
+  return item.priority;
+}
+
+function rebalanceBrainDumpPriorities(items: BrainDumpItemDraft[]) {
+  if (items.length < 3) {
+    return items;
+  }
+
+  const uniquePriorities = new Set(items.map((item) => item.priority));
+  if (uniquePriorities.size > 1) {
+    return items;
+  }
+
+  const ranked = [...items]
+    .map((item, index) => ({ item, index, score: prioritySortScore(item) }))
+    .sort((a, b) => a.score - b.score || a.index - b.index);
+  const next = [...items];
+
+  ranked.forEach((entry, rank) => {
+    const suggested =
+      entry.score <= 1
+        ? 1
+        : rank === 0
+          ? 2
+          : rank >= Math.max(2, items.length - 1) || entry.score >= 4
+            ? 4
+            : 3;
+    next[entry.index] = { ...entry.item, priority: suggested };
+  });
+
+  return next;
 }
 
 function classifyTextFallback(text: string): ClassificationResult {
@@ -555,7 +608,10 @@ function isLikelyUnprocessedBrainDumpTitle(title: string, fallbackText: string) 
 }
 
 function inferActionContent(title: string) {
-  if (/custom prompt|command router|라우터|반영/i.test(title)) {
+  if (/도시락|밥|식사|준비|챙기|싸기|포장/i.test(title)) {
+    return "필요한 재료나 준비물을 먼저 확인하고, 빠진 것이 없도록 완료 기준을 정한 뒤 바로 준비합니다.";
+  }
+  if (/custom prompt|personal prompt|개인\s*프롬프트|반영/i.test(title)) {
     return "설정값이 실제 처리 경로에 들어가는지 확인하고, 기대 동작과 다른 지점을 분리해 기록합니다.";
   }
   if (/gemini|brain dump|브레인덤프|api/i.test(title)) {
@@ -585,7 +641,7 @@ function inferActionContent(title: string) {
   if (/확인|점검|검토|review/i.test(title)) {
     return "먼저 현재 상태를 확인한 뒤 이상한 부분과 다음에 처리할 부분을 분리합니다.";
   }
-  return "왜 필요한 작업인지와 첫 행동을 짧게 메모해 바로 시작할 수 있게 만든 항목입니다.";
+  return "완료 기준을 짧게 정하고, 지금 바로 할 수 있는 첫 단계부터 시작합니다.";
 }
 
 function buildDistinctContent(params: {
@@ -732,7 +788,7 @@ function splitBrainDumpFallback(text: string): BrainDumpItemDraft[] {
     .filter(Boolean);
   const uniqueChunks = Array.from(new Set(chunks.length ? chunks : [text.trim()]));
 
-  return uniqueChunks.slice(0, 12).map((chunk) => {
+  const items = uniqueChunks.slice(0, 12).map((chunk) => {
     const classification = classifyTextFallback(chunk);
     const title = normalizeFallbackTitle(chunk);
     return {
@@ -749,6 +805,8 @@ function splitBrainDumpFallback(text: string): BrainDumpItemDraft[] {
       tags: classification.tags,
     };
   });
+
+  return rebalanceBrainDumpPriorities(items);
 }
 
 async function processBrainDumpWithGemini(
@@ -794,13 +852,15 @@ async function processBrainDumpWithGemini(
           .slice(0, 12)
       : [];
 
-    return items.length ? items : null;
+    return items.length ? rebalanceBrainDumpPriorities(items) : null;
   } catch (error) {
-    console.warn(
-      "[brain_dump_processor] Falling back to local splitter:",
-      error instanceof Error ? error.message : error,
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[brain_dump_processor] Gemini processing failed:", message);
+    throw new Error(
+      /429|quota|rate|too many/i.test(message)
+        ? "Gemini 요청 한도에 걸렸습니다. 잠시 후 다시 시도해주세요."
+        : `Gemini brain dump 처리에 실패했습니다: ${message}`,
     );
-    return null;
   }
 }
 
@@ -845,90 +905,6 @@ async function classifyText(text: string, user: AuthUser | null) {
     return (await classifyTextWithGemini(text, settings)) ?? classifyTextFallback(text);
   } catch (_error) {
     return classifyTextFallback(text);
-  }
-}
-
-function isRouterActionType(value: unknown): value is RouterAction["type"] {
-  return [
-    "create_item",
-    "move_selected_item_to_long_term",
-    "mark_selected_item_doing",
-    "mark_selected_item_done",
-    "create_schedule",
-    "generate_worklog",
-    "create_items",
-    "no_op",
-  ].includes(String(value));
-}
-
-function normalizeRouterResult(raw: RawRouterResult | null): RouterResult | null {
-  if (!raw || !Array.isArray(raw.actions)) {
-    return null;
-  }
-
-  const actions = raw.actions
-    .filter((action): action is Record<string, unknown> => Boolean(action) && typeof action === "object")
-    .map((action): RouterAction | null => {
-      if (!isRouterActionType(action.type)) {
-        return null;
-      }
-
-      const nextAction: RouterAction = { type: action.type };
-      if (action.payload && typeof action.payload === "object" && !Array.isArray(action.payload)) {
-        nextAction.payload = action.payload as Record<string, unknown>;
-      }
-      return nextAction;
-    })
-    .filter((action): action is RouterAction => Boolean(action));
-
-  if (actions.length === 0) {
-    return null;
-  }
-
-  const mode =
-    raw.mode === "command" || raw.mode === "content_capture" || raw.mode === "hybrid"
-      ? raw.mode
-      : "command";
-
-  const feedback = raw.userFeedback ?? raw.user_feedback;
-
-  return {
-    mode,
-    actions,
-    userFeedback: typeof feedback === "string" ? feedback : createRouterFeedback(actions),
-  };
-}
-
-async function routeCommandWithGemini(
-  payload: CommandPayload,
-  settings: UserSettingsRecord,
-) {
-  if (!isGeminiConfigured()) {
-    return null;
-  }
-
-  try {
-    const response = await generateGeminiJson<RawRouterResult>({
-      prompt: promptFor("command_router"),
-      contents: JSON.stringify(
-        {
-          personal_prompt: settings.customPrompt,
-          selected_item_ids: payload.selectedItemIds,
-          user_input: payload.text,
-        },
-        null,
-        2,
-      ),
-      maxOutputTokens: 1024,
-    });
-
-    return normalizeRouterResult(response);
-  } catch (error) {
-    console.warn(
-      "[command_router] Falling back to local command parser:",
-      error instanceof Error ? error.message : error,
-    );
-    return null;
   }
 }
 
@@ -2160,246 +2136,13 @@ export async function generateWorklogDraft(user: AuthUser | null): Promise<Workl
   };
 }
 
-function createRouterFeedback(actions: RouterAction[]) {
-  if (actions.some((action) => action.type === "generate_worklog")) {
-    return "업무일지 초안을 생성했습니다.";
-  }
-  if (actions.some((action) => action.type === "move_selected_item_to_long_term")) {
-    return "선택 항목을 장기 과제로 이동했습니다.";
-  }
-  if (actions.some((action) => action.type === "create_items")) {
-    return "브레인덤프를 작은 할일들로 나눠 Inbox에 저장했습니다.";
-  }
-  if (actions.some((action) => action.type === "create_item")) {
-    return "브레인덤프를 작은 할일들로 나눠 Inbox에 저장했습니다.";
-  }
-  if (actions.some((action) => action.type === "create_schedule")) {
-    return "일정을 추가했습니다.";
-  }
-  return "명령을 처리했습니다.";
-}
-
-function isExplicitWorklogCommand(text: string) {
-  const normalized = text.trim().toLowerCase();
-  if (!normalized.includes("업무일지") && !normalized.includes("worklog") && !normalized.includes("work log")) {
-    return false;
-  }
-
-  const checklistMarkers = [
-    "확인",
-    "점검",
-    "테스트",
-    "잘되는지",
-    "문제없는지",
-    "불편",
-    "반영되는지",
-    "해야",
-  ];
-  if (checklistMarkers.some((marker) => normalized.includes(marker))) {
-    return false;
-  }
-
-  return [
-    "생성",
-    "만들",
-    "작성",
-    "초안",
-    "뽑",
-    "generate",
-    "create",
-  ].some((marker) => normalized.includes(marker));
-}
-
-function isBrainDumpChecklist(text: string) {
-  const normalized = text.trim().toLowerCase();
-  if (normalized.length < 45) {
-    return false;
-  }
-
-  const checklistScore = [
-    "확인",
-    "점검",
-    "테스트",
-    "잘되는지",
-    "문제없는지",
-    "불편",
-    "반영되는지",
-    "해야",
-    "해보고",
-    "없는지",
-  ].filter((marker) => normalized.includes(marker)).length;
-  const conjunctionScore = [
-    "하고",
-    "그리고",
-    "그거 말고",
-    "전반적으로",
-    ",",
-    ".",
-  ].filter((marker) => normalized.includes(marker)).length;
-
-  return checklistScore >= 2 || (checklistScore >= 1 && conjunctionScore >= 2);
-}
-
-function looksLikeScheduleCommand(text: string) {
-  const normalized = text.trim().toLowerCase();
-  if (!normalized.includes("일정") && !normalized.includes("schedule")) {
-    return false;
-  }
-  return /추가|등록|넣어|잡아|생성|만들|add|create|schedule/.test(normalized);
-}
-
-function shouldBypassCommandRouterForBrainDump(payload: CommandPayload) {
-  const text = payload.text.trim();
-  const normalized = text.toLowerCase();
-  if (payload.selectedItemIds.length > 0 || isExplicitWorklogCommand(text) || looksLikeScheduleCommand(text)) {
-    return false;
-  }
-  if (isBrainDumpChecklist(text)) {
-    return true;
-  }
-  if (text.length >= 35) {
-    return true;
-  }
-  return /해야|하려고|하고\s|그리고|문제|걱정|컨디션|상태|할일|todo|brain dump/.test(normalized);
-}
-
-function routeFastLocalCommand(payload: CommandPayload): RouterResult | null {
-  const text = payload.text.trim().toLowerCase();
-  const hasSelection = payload.selectedItemIds.length > 0;
-  const actions: RouterAction[] = [];
-
-  if (hasSelection && (text.includes("장기") || text.includes("long-term") || text.includes("long term"))) {
-    actions.push({ type: "move_selected_item_to_long_term" });
-  } else if (hasSelection && (text.includes("doing") || text.includes("진행") || text.includes("시작"))) {
-    actions.push({ type: "mark_selected_item_doing" });
-  } else if (hasSelection && (text.includes("완료") || text.includes("끝") || text.includes("done"))) {
-    actions.push({ type: "mark_selected_item_done" });
-  } else if (isExplicitWorklogCommand(text)) {
-    actions.push({ type: "generate_worklog" });
-  }
-
-  if (actions.length === 0) {
-    return null;
-  }
-
-  return {
-    mode: "command",
-    actions,
-    userFeedback: createRouterFeedback(actions),
-  };
-}
-
-async function applyRouterActions(
-  user: AuthUser | null,
-  router: RouterResult,
-  payload: CommandPayload,
-  text: string,
-  userSettings?: UserSettingsRecord,
-) {
-  let draft: WorklogDraftResult | null = null;
-  const createdItems: ItemRecord[] = [];
-  const updatedItems: ItemRecord[] = [];
-  const createdSchedules: ScheduleRecord[] = [];
-
-  for (const action of router.actions) {
-    if (action.type === "move_selected_item_to_long_term") {
-      updatedItems.push(
-        ...(await Promise.all(
-          payload.selectedItemIds.map((id) =>
-            updateItem(user, id, {
-              status: "todo",
-              horizon: "long_term",
-              completedAt: null,
-            }),
-          ),
-        )),
-      );
-    }
-
-    if (action.type === "mark_selected_item_doing") {
-      updatedItems.push(
-        ...(await Promise.all(
-          payload.selectedItemIds.map((id) =>
-            updateItem(user, id, {
-              status: "doing",
-              completedAt: null,
-            }),
-          ),
-        )),
-      );
-    }
-
-    if (action.type === "mark_selected_item_done") {
-      const completedAt = isoNow();
-      updatedItems.push(
-        ...(await Promise.all(
-          payload.selectedItemIds.map((id) =>
-            updateItem(user, id, {
-              status: "done",
-              completedAt,
-            }),
-          ),
-        )),
-      );
-    }
-
-    if (action.type === "generate_worklog") {
-      draft = await generateWorklogDraft(user);
-    }
-
-    if (action.type === "create_schedule") {
-      const title =
-        typeof action.payload?.title === "string" && action.payload.title.trim()
-          ? action.payload.title.trim()
-          : text.slice(0, 80);
-      const scheduleDate =
-        typeof action.payload?.scheduleDate === "string" && action.payload.scheduleDate.trim()
-          ? action.payload.scheduleDate
-          : todayDate();
-      const notes =
-        typeof action.payload?.notes === "string"
-          ? action.payload.notes
-          : text;
-
-      createdSchedules.push(await createSchedule(user, { title, notes, scheduleDate }));
-    }
-
-    if (action.type === "create_item" || action.type === "create_items") {
-      const sourceText =
-        typeof action.payload?.content === "string" && action.payload.content.trim()
-          ? action.payload.content.trim()
-          : typeof action.payload?.text === "string" && action.payload.text.trim()
-            ? action.payload.text.trim()
-            : text;
-      const settings = userSettings ?? (await getUserSettingsFromSupabase(user));
-      createdItems.push(...(await createInboxItemsFromBrainDump(user, sourceText, settings)));
-    }
-  }
-
-  return {
-    worklogDraft: draft,
-    createdItems,
-    updatedItems,
-    createdSchedules,
-  };
-}
-
 export async function runCommand(user: AuthUser | null, payload: CommandPayload) {
   const text = payload.text.trim();
-  const actions: RouterAction[] = [];
-  const lower = text.toLowerCase();
-  let draft: WorklogDraftResult | null = null;
-  const createdItems: ItemRecord[] = [];
-  const updatedItems: ItemRecord[] = [];
-  const createdSchedules: ScheduleRecord[] = [];
-
   if (!text) {
     return {
       router: {
-        mode: "command",
-        actions: [{ type: "no_op" }],
         userFeedback: "빈 입력입니다.",
-      } satisfies RouterResult,
+      },
       worklogDraft: null,
       createdItems: [],
       updatedItems: [],
@@ -2407,126 +2150,16 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
     };
   }
 
-  const fastRouter = routeFastLocalCommand(payload);
-  if (fastRouter) {
-    const result = await applyRouterActions(user, fastRouter, payload, text);
-    return {
-      router: fastRouter,
-      ...result,
-    };
-  }
-
   const settings = await getUserSettingsFromSupabase(user);
-  if (shouldBypassCommandRouterForBrainDump(payload)) {
-    actions.push({
-      type: "create_items",
-      payload: { text },
-    });
-    createdItems.push(...(await createInboxItemsFromBrainDump(user, text, settings)));
-
-    return {
-      router: {
-        mode: "content_capture",
-        actions,
-        userFeedback: createRouterFeedback(actions),
-      },
-      worklogDraft: null,
-      createdItems,
-      updatedItems,
-      createdSchedules,
-    };
-  }
-
-  const geminiRouter = await routeCommandWithGemini(payload, settings);
-  if (geminiRouter) {
-    const result = await applyRouterActions(user, geminiRouter, payload, text, settings);
-    return {
-      router: geminiRouter,
-      ...result,
-    };
-  }
-
-  if (text.includes("장기") && payload.selectedItemIds.length > 0) {
-    actions.push({ type: "move_selected_item_to_long_term" });
-    for (const id of payload.selectedItemIds) {
-      updatedItems.push(
-        await updateItem(user, id, {
-          status: "todo",
-          horizon: "long_term",
-          completedAt: null,
-        }),
-      );
-    }
-  }
-
-  if (text.includes("doing") || text.includes("진행")) {
-    if (payload.selectedItemIds.length > 0) {
-      actions.push({ type: "mark_selected_item_doing" });
-      for (const id of payload.selectedItemIds) {
-        updatedItems.push(
-          await updateItem(user, id, {
-            status: "doing",
-            completedAt: null,
-          }),
-        );
-      }
-    }
-  }
-
-  if (text.includes("완료") || lower.includes("done")) {
-    if (payload.selectedItemIds.length > 0) {
-      actions.push({ type: "mark_selected_item_done" });
-      for (const id of payload.selectedItemIds) {
-        updatedItems.push(
-          await updateItem(user, id, {
-            status: "done",
-            completedAt: isoNow(),
-          }),
-        );
-      }
-    }
-  }
-
-  if (isExplicitWorklogCommand(text)) {
-    actions.push({ type: "generate_worklog" });
-    draft = await generateWorklogDraft(user);
-  }
-
-  if (text.includes("일정")) {
-    actions.push({ type: "create_schedule", payload: { text } });
-    createdSchedules.push(
-      await createSchedule(user, {
-        title: text.slice(0, 80),
-        notes: text,
-        scheduleDate: todayDate(),
-      }),
-    );
-  }
-
-  if (actions.length === 0) {
-    actions.push({
-      type: "create_items",
-      payload: { text },
-    });
-    createdItems.push(...(await createInboxItemsFromBrainDump(user, text, settings)));
-  }
-
-  const router: RouterResult = {
-    mode:
-      actions.some((action) => action.type === "create_item" || action.type === "create_items") && actions.length > 1
-        ? "hybrid"
-        : actions[0]?.type === "create_item" || actions[0]?.type === "create_items"
-          ? "content_capture"
-          : "command",
-    actions,
-    userFeedback: createRouterFeedback(actions),
-  };
+  const createdItems = await createInboxItemsFromBrainDump(user, text, settings);
 
   return {
-    router,
-    worklogDraft: draft,
+    router: {
+      userFeedback: "브레인덤프를 작은 할일들로 나눠 Inbox에 저장했습니다.",
+    },
+    worklogDraft: null,
     createdItems,
-    updatedItems,
-    createdSchedules,
+    updatedItems: [],
+    createdSchedules: [],
   };
 }

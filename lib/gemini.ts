@@ -77,7 +77,8 @@ async function callGemini(input: {
 
     const payload = (await response.json()) as GeminiGenerateResponse;
     if (!response.ok) {
-      throw new Error(payload.error?.message ?? `Gemini request failed: ${response.status}`);
+      const message = payload.error?.message ?? response.statusText;
+      throw new Error(`Gemini request failed: ${response.status} ${message}`);
     }
 
     const text = payload.candidates?.[0]?.content?.parts

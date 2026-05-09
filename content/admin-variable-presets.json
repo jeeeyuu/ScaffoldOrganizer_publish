@@ -18,12 +18,6 @@
     "description": "Priority used when AI output is unavailable or does not include a valid priority."
   },
   {
-    "category": "AI behavior",
-    "key": "command_router_enabled_actions",
-    "defaultValue": "move_selected_item_to_long_term,mark_selected_item_doing,mark_selected_item_done,create_schedule,generate_worklog",
-    "description": "Comma-separated command actions that should be allowed by the command router."
-  },
-  {
     "category": "Retention",
     "key": "guest_session_hours",
     "defaultValue": "36",

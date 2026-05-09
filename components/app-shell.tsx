@@ -602,7 +602,7 @@ export function AppShell({ initialData }: Props) {
 
   async function sendCommand() {
     await runBusy("sendCommand", async () => {
-      setFeedback("Processing command…", "busy");
+      setFeedback("Processing brain dump…", "busy");
       const response = await fetch("/api/chat/command", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -613,7 +613,7 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response, "Failed to process command"));
+        throw new Error(await readErrorMessage(response, "Failed to process brain dump"));
       }
 
       const result = (await response.json()) as CommandResponse;
@@ -633,9 +633,9 @@ export function AppShell({ initialData }: Props) {
         setActiveTab("worklogs");
       }
 
-      setFeedback(result.router.userFeedback || "Command processed", "success");
+      setFeedback(result.router.userFeedback || "Brain dump processed", "success");
     }).catch((error: unknown) => {
-      setFeedback(error instanceof Error ? error.message : "Failed to process command", "error");
+      setFeedback(error instanceof Error ? error.message : "Failed to process brain dump", "error");
     });
   }
 
@@ -1570,7 +1570,7 @@ export function AppShell({ initialData }: Props) {
 
           <footer className="command-bar">
             <textarea
-              placeholder="Paste a brain dump, capture a thought, or issue a command."
+              placeholder="Paste a brain dump: messy tasks, context, condition, worries, and ideas."
               value={commandInput}
               onChange={(event) => setCommandInput(event.target.value)}
               onKeyDown={(event) => {

@@ -95,7 +95,7 @@ export interface StatusSnapshot {
 }
 
 export interface PromptDefinition {
-  role: "command_router" | "classifier" | "brain_dump_processor" | "task_structurer";
+  role: "classifier" | "brain_dump_processor" | "task_structurer";
   model: string;
   developerMessage: string;
 }
@@ -111,25 +111,6 @@ export interface BootstrapPayload {
   adminVariables: AdminVariableRecord[];
   prompts: PromptDefinition[];
   usingSupabase: boolean;
-}
-
-export interface RouterAction {
-  type:
-    | "create_item"
-    | "move_selected_item_to_long_term"
-    | "mark_selected_item_doing"
-    | "mark_selected_item_done"
-    | "create_schedule"
-    | "generate_worklog"
-    | "create_items"
-    | "no_op";
-  payload?: Record<string, unknown>;
-}
-
-export interface RouterResult {
-  mode: "command" | "content_capture" | "hybrid";
-  actions: RouterAction[];
-  userFeedback: string;
 }
 
 export interface CommandPayload {
