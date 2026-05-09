@@ -289,6 +289,15 @@ function FeedbackBadge({
   return <span className={`dot ${tone}`}>{label}: {value}</span>;
 }
 
+async function readErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { error?: unknown };
+    return typeof payload.error === "string" && payload.error ? payload.error : fallback;
+  } catch (_error) {
+    return fallback;
+  }
+}
+
 export function AppShell({ initialData }: Props) {
   const [bootstrap, setBootstrap] = useState(initialData);
   const [activeTab, setActiveTab] = useState<AppTab>("inbox");
@@ -623,6 +632,10 @@ export function AppShell({ initialData }: Props) {
       }
 
       const result = (await response.json()) as { needsConfirmation?: boolean };
+      if (authMode === "signup") {
+        setAuthMode("login");
+        setAuthDraft({ email: authDraft.email, password: "" });
+      }
       await refreshBootstrap();
       setFeedback(
         result.needsConfirmation
@@ -635,6 +648,11 @@ export function AppShell({ initialData }: Props) {
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Authentication failed", "error");
     });
+  }
+
+  function toggleAuthMode() {
+    setAuthMode((mode) => (mode === "login" ? "signup" : "login"));
+    setAuthDraft({ email: "", password: "" });
   }
 
   async function logout() {
@@ -695,7 +713,7 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save settings");
+        throw new Error(await readErrorMessage(response, "Failed to save settings"));
       }
 
       await refreshBootstrap();
@@ -777,7 +795,7 @@ export function AppShell({ initialData }: Props) {
             <button onClick={() => void submitAuth()} disabled={busyKey !== null}>
               {authMode === "login" ? "Login" : "Create account"}
             </button>
-            <button onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}>
+            <button onClick={toggleAuthMode}>
               {authMode === "login" ? "Need account?" : "Have account?"}
             </button>
           </div>

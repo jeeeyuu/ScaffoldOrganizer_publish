@@ -621,7 +621,7 @@ async function listItemsFromSupabase(user: AuthUser | null) {
     return clone(demoStore.items);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     return clone(demoStore.items);
   }
@@ -646,7 +646,7 @@ async function listWorklogsFromSupabase(user: AuthUser | null) {
     return clone(demoStore.worklogs);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     return clone(demoStore.worklogs);
   }
@@ -671,7 +671,7 @@ async function listSchedulesFromSupabase(user: AuthUser | null) {
     return clone(demoStore.schedules);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     return clone(demoStore.schedules);
   }
@@ -696,7 +696,7 @@ async function listStatusEventsFromSupabase(user: AuthUser | null) {
     return clone(demoStore.events);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     return clone(demoStore.events);
   }
@@ -722,7 +722,7 @@ async function getUserSettingsFromSupabase(user: AuthUser | null) {
     return clone(demoStore.settings);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     return clone(demoStore.settings);
   }
@@ -748,7 +748,7 @@ async function listAdminVariablesFromSupabase(user: AuthUser | null) {
     return clone(demoStore.adminVariables);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     return clone(demoStore.adminVariables);
   }
@@ -779,7 +779,7 @@ async function cleanupExpiredArchivedItems(user: AuthUser | null) {
     return;
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     return;
   }
@@ -972,7 +972,7 @@ export async function updateItem(user: AuthUser | null, id: string, patch: ItemP
     return clone(nextItem);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
   }
@@ -1032,7 +1032,7 @@ export async function deleteItem(user: AuthUser | null, id: string) {
     return;
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
   }
@@ -1092,7 +1092,7 @@ async function createItemFromClassification(
     return clone(item);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
   }
@@ -1185,7 +1185,7 @@ export async function saveWorklog(user: AuthUser | null, input: {
     return clone(worklog);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
   }
@@ -1231,7 +1231,7 @@ export async function createSchedule(
     return clone(schedule);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
   }
@@ -1264,7 +1264,7 @@ export async function deleteSchedule(user: AuthUser | null, id: string) {
     return;
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
   }
@@ -1286,7 +1286,7 @@ export async function updateUserSettings(
     return clone(demoStore.settings);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
   }
@@ -1334,7 +1334,7 @@ export async function upsertAdminVariable(
     return clone(next);
   }
 
-  const supabase = createServerSupabase();
+  const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
   }
