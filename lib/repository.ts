@@ -2061,6 +2061,67 @@ function createRouterFeedback(actions: RouterAction[]) {
   return "명령을 처리했습니다.";
 }
 
+function isExplicitWorklogCommand(text: string) {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized.includes("업무일지") && !normalized.includes("worklog") && !normalized.includes("work log")) {
+    return false;
+  }
+
+  const checklistMarkers = [
+    "확인",
+    "점검",
+    "테스트",
+    "잘되는지",
+    "문제없는지",
+    "불편",
+    "반영되는지",
+    "해야",
+  ];
+  if (checklistMarkers.some((marker) => normalized.includes(marker))) {
+    return false;
+  }
+
+  return [
+    "생성",
+    "만들",
+    "작성",
+    "초안",
+    "뽑",
+    "generate",
+    "create",
+  ].some((marker) => normalized.includes(marker));
+}
+
+function isBrainDumpChecklist(text: string) {
+  const normalized = text.trim().toLowerCase();
+  if (normalized.length < 45) {
+    return false;
+  }
+
+  const checklistScore = [
+    "확인",
+    "점검",
+    "테스트",
+    "잘되는지",
+    "문제없는지",
+    "불편",
+    "반영되는지",
+    "해야",
+    "해보고",
+    "없는지",
+  ].filter((marker) => normalized.includes(marker)).length;
+  const conjunctionScore = [
+    "하고",
+    "그리고",
+    "그거 말고",
+    "전반적으로",
+    ",",
+    ".",
+  ].filter((marker) => normalized.includes(marker)).length;
+
+  return checklistScore >= 2 || (checklistScore >= 1 && conjunctionScore >= 2);
+}
+
 function routeFastLocalCommand(payload: CommandPayload): RouterResult | null {
   const text = payload.text.trim().toLowerCase();
   const hasSelection = payload.selectedItemIds.length > 0;
@@ -2072,7 +2133,7 @@ function routeFastLocalCommand(payload: CommandPayload): RouterResult | null {
     actions.push({ type: "mark_selected_item_doing" });
   } else if (hasSelection && (text.includes("완료") || text.includes("끝") || text.includes("done"))) {
     actions.push({ type: "mark_selected_item_done" });
-  } else if (text.includes("업무일지") || text.includes("work log") || text.includes("worklog")) {
+  } else if (isExplicitWorklogCommand(text)) {
     actions.push({ type: "generate_worklog" });
   }
 
@@ -2215,6 +2276,26 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
   }
 
   const settings = await getUserSettingsFromSupabase(user);
+  if (isBrainDumpChecklist(text)) {
+    actions.push({
+      type: "create_items",
+      payload: { text },
+    });
+    createdItems.push(...(await createInboxItemsFromBrainDump(user, text, settings)));
+
+    return {
+      router: {
+        mode: "content_capture",
+        actions,
+        userFeedback: createRouterFeedback(actions),
+      },
+      worklogDraft: null,
+      createdItems,
+      updatedItems,
+      createdSchedules,
+    };
+  }
+
   const geminiRouter = await routeCommandWithGemini(payload, settings);
   if (geminiRouter) {
     const result = await applyRouterActions(user, geminiRouter, payload, text, settings);
@@ -2265,7 +2346,7 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
     }
   }
 
-  if (text.includes("업무일지") || lower.includes("work log") || lower.includes("worklog")) {
+  if (isExplicitWorklogCommand(text)) {
     actions.push({ type: "generate_worklog" });
     draft = await generateWorklogDraft(user);
   }

@@ -8,8 +8,11 @@ export const PROMPT_REGISTRY: PromptDefinition[] = [
 사용자 입력을 해석해 action JSON만 반환합니다.
 여러 의도는 여러 action으로 분해합니다.
 selected item이 언급되면 반드시 활용합니다.
-장기 과제는 long_term, 진행 중은 doing, 업무일지는 generate_worklog로 라우팅합니다.
-정리되지 않은 할일/상황/컨디션 입력은 단일 create_item이 아니라 create_items로 라우팅하고 payload.text에 원문 전체를 유지합니다.
+장기 과제는 long_term, 진행 중은 doing으로 라우팅합니다.
+업무일지는 사용자가 "업무일지 생성해줘", "worklog 만들어줘", "오늘 업무일지 초안"처럼 명시적으로 산출물 생성을 요청할 때만 generate_worklog로 라우팅합니다.
+"worklog 생성이 잘되는지 확인", "command router가 반영되는지 확인", "UI 불편한 것 점검"처럼 기능 점검/해야 할 일 목록 안에 worklog 단어가 들어간 경우에는 generate_worklog가 아니라 create_items입니다.
+정리되지 않은 할일/상황/컨디션/점검 목록 입력은 단일 create_item이 아니라 create_items로 라우팅하고 payload.text에 원문 전체를 유지합니다.
+긴 입력에서 "확인", "점검", "테스트", "잘되는지", "문제없는지", "불편한 것" 같은 표현이 여러 개 나오면 기본적으로 brain dump로 간주합니다.
 출력은 반드시 다음 TypeScript 구조와 호환되는 JSON object만 사용합니다.
 {
   "mode": "command" | "content_capture" | "hybrid",
