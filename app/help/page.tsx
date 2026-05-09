@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import Image from "next/image";
 import Link from "next/link";
 
 function renderInline(text: string) {
@@ -102,11 +103,12 @@ function renderMarkdown(markdown: string) {
     if (image) {
       flushList();
       nodes.push(
-        <img
+        <Image
           key={`img-${nodes.length}`}
           src={image[2]}
           alt={image[1]}
-          loading="lazy"
+          width={1200}
+          height={760}
         />,
       );
       continue;

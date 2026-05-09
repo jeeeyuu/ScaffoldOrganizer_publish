@@ -1,0 +1,62 @@
+[
+  {
+    "category": "AI behavior",
+    "key": "brain_dump_max_items",
+    "defaultValue": "12",
+    "description": "Maximum number of final inbox items the brain dump processor should return."
+  },
+  {
+    "category": "AI behavior",
+    "key": "brain_dump_granularity",
+    "defaultValue": "situation_aware",
+    "description": "Preferred task splitting style. Suggested values: situation_aware, tiny_steps, balanced, coarse."
+  },
+  {
+    "category": "AI behavior",
+    "key": "fallback_item_priority",
+    "defaultValue": "3",
+    "description": "Priority used when AI output is unavailable or does not include a valid priority."
+  },
+  {
+    "category": "AI behavior",
+    "key": "command_router_enabled_actions",
+    "defaultValue": "move_selected_item_to_long_term,mark_selected_item_doing,mark_selected_item_done,create_schedule,generate_worklog",
+    "description": "Comma-separated command actions that should be allowed by the command router."
+  },
+  {
+    "category": "Retention",
+    "key": "guest_session_hours",
+    "defaultValue": "36",
+    "description": "Guest trial duration in hours."
+  },
+  {
+    "category": "Retention",
+    "key": "archive_retention_days",
+    "defaultValue": "10",
+    "description": "Number of days before archived items are permanently deleted."
+  },
+  {
+    "category": "Calendar",
+    "key": "default_calendar_week_start",
+    "defaultValue": "monday",
+    "description": "Default calendar week start for new users and guest sessions. Suggested values: monday, sunday."
+  },
+  {
+    "category": "Calendar",
+    "key": "default_timezone",
+    "defaultValue": "Asia/Seoul",
+    "description": "Operational timezone reference for date-oriented text and docs."
+  },
+  {
+    "category": "Export",
+    "key": "export_filename_prefix",
+    "defaultValue": "scaffold-export",
+    "description": "Preferred filename prefix for Markdown exports."
+  },
+  {
+    "category": "Auth copy",
+    "key": "signup_confirmation_notice",
+    "defaultValue": "계정 생성 후 인증 메일을 확인해야 로그인이 가능합니다. 메일함과 스팸함을 확인해주세요.",
+    "description": "Copy used to remind users that sign up requires email confirmation."
+  }
+]

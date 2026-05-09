@@ -390,6 +390,17 @@ textarea {
   box-shadow: 2px 2px 0 #bdeeff;
 }
 
+.auth-notice {
+  margin: 0;
+  border: 1px solid #bdeeff;
+  border-radius: 14px;
+  background: #f8fbff;
+  color: #3d86a7;
+  padding: 9px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .trash-btn {
   min-width: 24px;
   color: var(--red);
@@ -649,6 +660,83 @@ textarea {
 
 .settings-account-card strong {
   font-size: 18px;
+}
+
+.admin-preset-header {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f8fbff;
+  padding: 10px 12px;
+}
+
+.admin-preset-header p {
+  margin: 4px 0 0;
+}
+
+.admin-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.admin-presets h2,
+.list > h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.admin-preset-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 10px;
+  box-shadow: 2px 2px 0 #bdeeff;
+}
+
+.admin-preset-card.saved {
+  border-color: var(--blue-deep);
+}
+
+.admin-preset-card strong,
+.admin-preset-category {
+  display: block;
+}
+
+.admin-preset-category {
+  margin-bottom: 3px;
+  color: #3d86a7;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-preset-card p {
+  margin: 5px 0 7px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.admin-preset-card code {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f2f7fb;
+  padding: 3px 6px;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.admin-preset-card button {
+  flex: 0 0 auto;
 }
 
 .schedule-entry p,

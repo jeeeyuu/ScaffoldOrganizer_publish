@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import adminVariablePresets from "@/content/admin-variable-presets.json";
 import authIntro from "@/content/auth-intro.json";
 import type {
   AppTab,
@@ -32,6 +33,15 @@ const PRIORITY_LABELS: Record<number, string> = {
   4: "P4 · Low",
   5: "P5 · Someday",
 };
+
+type AdminVariablePreset = {
+  category: string;
+  key: string;
+  defaultValue: string;
+  description: string;
+};
+
+const ADMIN_VARIABLE_PRESETS = adminVariablePresets as AdminVariablePreset[];
 
 type FeedbackLevel = "info" | "success" | "error" | "busy";
 
@@ -425,6 +435,7 @@ export function AppShell({ initialData }: Props) {
     .filter((item) => item.status === "archived")
     .sort((a, b) => itemArchivedAt(b, bootstrap.events).localeCompare(itemArchivedAt(a, bootstrap.events)));
   const showAuthPanel = !bootstrap.user || showGuestAuth;
+  const adminVariableMap = new Map(bootstrap.adminVariables.map((entry) => [entry.key, entry]));
 
   function toggleSelection(itemId: string) {
     setSelectedIds((current) =>
@@ -646,7 +657,7 @@ export function AppShell({ initialData }: Props) {
       }
       setFeedback(
         result.needsConfirmation
-          ? "Account created. Check your email to confirm login."
+          ? "계정이 생성되었습니다. 이메일 인증 메일을 확인한 뒤 다시 로그인해주세요."
           : authMode === "login"
             ? "Logged in"
             : "Account created",
@@ -812,6 +823,11 @@ export function AppShell({ initialData }: Props) {
             <h2>{authMode === "login" ? "Login" : "Sign up"}</h2>
             {bootstrap.user?.isGuest ? (
               <p className="meta">게스트 데이터를 계정에 저장하려면 로그인하거나 회원가입하세요.</p>
+            ) : null}
+            {authMode === "signup" ? (
+              <p className="auth-notice">
+                계정 생성 후 인증 메일을 확인해야 로그인이 가능합니다. 메일함과 스팸함을 확인해주세요.
+              </p>
             ) : null}
             <input
               key={`email-${authMode}`}
@@ -1296,6 +1312,12 @@ export function AppShell({ initialData }: Props) {
               {activeTab === "admin" && bootstrap.user?.isAdmin ? (
                 <div className="split">
                   <div className="settings-panel">
+                    <div className="admin-preset-header">
+                      <span className="eyebrow">Admin variables</span>
+                      <p className="meta">
+                        자주 바뀔 수 있는 운영 값을 preset에서 골라 저장하세요. 저장된 값은 아래 목록에서 다시 수정할 수 있습니다.
+                      </p>
+                    </div>
                     <input
                       placeholder="Variable key"
                       value={adminDraft.key ?? ""}
@@ -1314,8 +1336,38 @@ export function AppShell({ initialData }: Props) {
                     <button onClick={() => void saveAdminVariable()} disabled={busyKey !== null || !adminDraft.key}>
                       Save Variable
                     </button>
+                    <section className="admin-presets">
+                      <h2>Recommended presets</h2>
+                      {ADMIN_VARIABLE_PRESETS.map((preset) => {
+                        const saved = adminVariableMap.get(preset.key);
+                        return (
+                          <article key={preset.key} className={`admin-preset-card${saved ? " saved" : ""}`}>
+                            <div>
+                              <span className="admin-preset-category">{preset.category}</span>
+                              <strong>{preset.key}</strong>
+                              <p>{preset.description}</p>
+                              <code>{saved?.value || preset.defaultValue}</code>
+                            </div>
+                            <button
+                              onClick={() =>
+                                setAdminDraft({
+                                  id: saved?.id,
+                                  key: preset.key,
+                                  value: saved?.value ?? preset.defaultValue,
+                                  description: saved?.description ?? preset.description,
+                                  updatedAt: saved?.updatedAt,
+                                })
+                              }
+                            >
+                              {saved ? "Edit" : "Use"}
+                            </button>
+                          </article>
+                        );
+                      })}
+                    </section>
                   </div>
                   <div className="list">
+                    <h2>Saved variables</h2>
                     {bootstrap.adminVariables.map((entry) => (
                       <div key={entry.id} className="list-entry" onClick={() => setAdminDraft(entry)}>
                         <strong>{entry.key}</strong>
@@ -1323,6 +1375,9 @@ export function AppShell({ initialData }: Props) {
                         <p>{entry.value}</p>
                       </div>
                     ))}
+                    {!bootstrap.adminVariables.length ? (
+                      <p className="meta">No admin variables saved yet.</p>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
