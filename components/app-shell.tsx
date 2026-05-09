@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import adminVariablePresets from "@/content/admin-variable-presets.json";
 import authIntro from "@/content/auth-intro.json";
@@ -420,6 +420,17 @@ export function AppShell({ initialData }: Props) {
     });
   }
 
+  function snapshotBootstrap() {
+    return {
+      ...bootstrap,
+      items: [...bootstrap.items],
+      events: [...bootstrap.events],
+      schedules: [...bootstrap.schedules],
+      worklogs: [...bootstrap.worklogs],
+      adminVariables: [...bootstrap.adminVariables],
+    };
+  }
+
   function removeLocalItem(itemId: string) {
     setBootstrap((current) => ({
       ...current,
@@ -523,28 +534,61 @@ export function AppShell({ initialData }: Props) {
     setSettingsDraft(bootstrap.settings);
   }, [bootstrap.settings]);
 
-  const visibleItems = sortItemsForDisplay(filterItems(bootstrap.items, activeTab, filter));
-  const filteredOutCount =
-    activeTab === "worklogs" ||
-    activeTab === "schedule" ||
-    activeTab === "calendar" ||
-    activeTab === "settings" ||
-    activeTab === "admin"
-      ? 0
-      : filterItems(bootstrap.items, activeTab, "").length - visibleItems.length;
-  const monthDays = buildMonthCalendar(
-    calendarMonth,
-    bootstrap.items,
-    bootstrap.schedules,
-    bootstrap.events,
-    bootstrap.settings.calendarWeekStartsOn,
+  const itemTabActive =
+    activeTab !== "worklogs" &&
+    activeTab !== "schedule" &&
+    activeTab !== "calendar" &&
+    activeTab !== "settings" &&
+    activeTab !== "admin";
+  const visibleItems = useMemo(
+    () => sortItemsForDisplay(filterItems(bootstrap.items, activeTab, filter)),
+    [activeTab, bootstrap.items, filter],
   );
-  const calendarWeekdays = weekdayLabels(bootstrap.settings.calendarWeekStartsOn);
-  const upcomingSchedules = scheduledWithinDays(bootstrap.schedules, selectedDate, 7);
-  const upcomingScheduleGroups = groupSchedulesByDay(bootstrap.schedules, selectedDate, 7);
-  const archivedItems = bootstrap.items
-    .filter((item) => item.status === "archived")
-    .sort((a, b) => itemArchivedAt(b, bootstrap.events).localeCompare(itemArchivedAt(a, bootstrap.events)));
+  const filteredOutCount = useMemo(
+    () => (itemTabActive ? filterItems(bootstrap.items, activeTab, "").length - visibleItems.length : 0),
+    [activeTab, bootstrap.items, itemTabActive, visibleItems.length],
+  );
+  const monthDays = useMemo(
+    () =>
+      activeTab === "calendar"
+        ? buildMonthCalendar(
+            calendarMonth,
+            bootstrap.items,
+            bootstrap.schedules,
+            bootstrap.events,
+            bootstrap.settings.calendarWeekStartsOn,
+          )
+        : [],
+    [
+      activeTab,
+      bootstrap.events,
+      bootstrap.items,
+      bootstrap.schedules,
+      bootstrap.settings.calendarWeekStartsOn,
+      calendarMonth,
+    ],
+  );
+  const calendarWeekdays = useMemo(
+    () => weekdayLabels(bootstrap.settings.calendarWeekStartsOn),
+    [bootstrap.settings.calendarWeekStartsOn],
+  );
+  const upcomingSchedules = useMemo(
+    () => (activeTab === "calendar" ? scheduledWithinDays(bootstrap.schedules, selectedDate, 7) : []),
+    [activeTab, bootstrap.schedules, selectedDate],
+  );
+  const upcomingScheduleGroups = useMemo(
+    () => (activeTab === "calendar" ? groupSchedulesByDay(bootstrap.schedules, selectedDate, 7) : []),
+    [activeTab, bootstrap.schedules, selectedDate],
+  );
+  const archivedItems = useMemo(
+    () =>
+      activeTab === "settings"
+        ? bootstrap.items
+            .filter((item) => item.status === "archived")
+            .sort((a, b) => itemArchivedAt(b, bootstrap.events).localeCompare(itemArchivedAt(a, bootstrap.events)))
+        : [],
+    [activeTab, bootstrap.events, bootstrap.items],
+  );
   const showAuthPanel = !bootstrap.user || showGuestAuth;
   const adminVariableMap = new Map(bootstrap.adminVariables.map((entry) => [entry.key, entry]));
 
@@ -597,17 +641,34 @@ export function AppShell({ initialData }: Props) {
 
   async function updateItemStatus(itemId: string, status: ItemRecord["status"]) {
     await runBusy(`status-${itemId}`, async () => {
+      const rollback = snapshotBootstrap();
+      const previousItem = bootstrap.items.find((item) => item.id === itemId);
+      const completedAt = status === "done" ? new Date().toISOString() : null;
+
+      if (previousItem) {
+        applyUpdatedItem(
+          {
+            ...previousItem,
+            status,
+            completedAt,
+            updatedAt: new Date().toISOString(),
+          },
+          status,
+        );
+      }
+
       const response = await fetch("/api/items", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: itemId,
           status,
-          completedAt: status === "done" ? new Date().toISOString() : null,
+          completedAt,
         }),
       });
 
       if (!response.ok) {
+        setBootstrap(rollback);
         throw new Error(await readErrorMessage(response, "Failed to update status"));
       }
 
@@ -619,6 +680,22 @@ export function AppShell({ initialData }: Props) {
 
   async function updateItemHorizon(itemId: string, horizon: ItemRecord["horizon"]) {
     await runBusy(`horizon-${itemId}`, async () => {
+      const rollback = snapshotBootstrap();
+      const previousItem = bootstrap.items.find((item) => item.id === itemId);
+
+      if (previousItem) {
+        applyUpdatedItem(
+          {
+            ...previousItem,
+            horizon,
+            status: "todo",
+            completedAt: null,
+            updatedAt: new Date().toISOString(),
+          },
+          "todo",
+        );
+      }
+
       const response = await fetch("/api/items", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -631,6 +708,7 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
+        setBootstrap(rollback);
         throw new Error(await readErrorMessage(response, "Failed to update horizon"));
       }
 

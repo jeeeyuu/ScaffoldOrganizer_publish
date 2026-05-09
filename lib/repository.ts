@@ -408,6 +408,23 @@ function promptFor(role: (typeof PROMPT_REGISTRY)[number]["role"]) {
   return prompt;
 }
 
+function inferFallbackPriority(text: string) {
+  const normalized = text.toLowerCase();
+  if (/긴급|급함|오늘|마감|deadline|장애|오류|에러|안됨|실패|중단|critical|urgent/.test(normalized)) {
+    return 1;
+  }
+  if (/확인|점검|검토|테스트|리뷰|수정|반영|문제|bug|fix|review|test/.test(normalized)) {
+    return 2;
+  }
+  if (/정리|작성|생성|만들|구현|연동|설정|공부|학습|조사|확장/.test(normalized)) {
+    return 3;
+  }
+  if (/나중|언젠가|장기|아이디어|생각|후보|maybe|someday/.test(normalized)) {
+    return 4;
+  }
+  return 3;
+}
+
 function classifyTextFallback(text: string): ClassificationResult {
   const trimmed = text.trim();
   if (trimmed.includes("장기") || trimmed.includes("나중")) {
@@ -415,7 +432,7 @@ function classifyTextFallback(text: string): ClassificationResult {
       itemType: "task",
       status: "todo",
       horizon: "long_term",
-      priority: 4,
+      priority: inferFallbackPriority(trimmed),
       project: "",
       tags: [],
     };
@@ -447,7 +464,7 @@ function classifyTextFallback(text: string): ClassificationResult {
     itemType: "task",
     status: "inbox",
     horizon: "now",
-    priority: 2,
+    priority: inferFallbackPriority(trimmed),
     project: "",
     tags: [],
   };
@@ -480,7 +497,79 @@ function normalizedText(value: string) {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function stripMemoPrefix(value: string) {
+  return value.replace(/^\s*메모\s*[:：]\s*/i, "").trim();
+}
+
+function isContentTooCloseToInput(content: string, title: string, fallbackText: string) {
+  const normalizedContent = normalizedText(stripMemoPrefix(content));
+  const normalizedTitle = normalizedText(title);
+  const normalizedFallback = normalizedText(fallbackText);
+
+  if (!normalizedContent || normalizedContent === normalizedTitle) {
+    return true;
+  }
+  if (normalizedFallback && normalizedContent === normalizedFallback) {
+    return true;
+  }
+  if (normalizedFallback.length > 40 && normalizedFallback.includes(normalizedContent)) {
+    return true;
+  }
+  if (normalizedContent.length > 40 && normalizedContent.includes(normalizedFallback)) {
+    return true;
+  }
+  return false;
+}
+
+function brainDumpMarkerCount(text: string) {
+  const normalized = normalizedText(text);
+  return [
+    "확인",
+    "점검",
+    "테스트",
+    "잘되는지",
+    "문제없는지",
+    "불편",
+    "반영되는지",
+    "해야",
+    "하고",
+    "그리고",
+    ",",
+  ].filter((marker) => normalized.includes(marker)).length;
+}
+
+function isLikelyUnprocessedBrainDumpTitle(title: string, fallbackText: string) {
+  const normalizedTitle = normalizedText(title);
+  const normalizedFallback = normalizedText(fallbackText);
+
+  if (normalizedFallback.length < 60) {
+    return false;
+  }
+  if (normalizedTitle.length >= 60 && brainDumpMarkerCount(normalizedTitle) >= 2) {
+    return true;
+  }
+  if (normalizedTitle.includes("그거 말고") || normalizedTitle.includes(",")) {
+    return true;
+  }
+  return normalizedFallback.startsWith(normalizedTitle.slice(0, 50));
+}
+
 function inferActionContent(title: string) {
+  if (/custom prompt|command router|라우터|반영/i.test(title)) {
+    return "설정값이 실제 처리 경로에 들어가는지 확인하고, 기대 동작과 다른 지점을 분리해 기록합니다.";
+  }
+  if (/gemini|brain dump|브레인덤프|api/i.test(title)) {
+    return "짧은 입력과 긴 입력을 각각 넣어 보고, 할일 분리와 내용 작성 품질을 기준으로 결과를 비교합니다.";
+  }
+  if (/guest|게스트/i.test(title)) {
+    return "게스트 세션 생성, 데이터 저장, 로그인 후 병합 흐름을 순서대로 확인합니다.";
+  }
+  if (/ui|불편|화면|사용성/i.test(title)) {
+    return "직접 눌러 보며 흐름이 막히는 지점, 버튼 위치, 문구 혼란을 구체적으로 적습니다.";
+  }
+  if (/worklog|업무일지/i.test(title)) {
+    return "오늘의 일정, 진행 중 항목, 완료 항목이 기대한 형식으로 묶이는지 생성 결과를 확인합니다.";
+  }
   if (/코드\s*리뷰|코드리뷰|review/i.test(title)) {
     return "변환한 코드가 의도한 분석 흐름을 유지하는지 확인하고, 입력/출력과 주요 함수 호출부터 순서대로 점검합니다.";
   }
@@ -505,8 +594,8 @@ function buildDistinctContent(params: {
   fallbackText: string;
   context?: { currentSituation: string; currentState: string };
 }) {
-  const content = params.content.trim();
-  if (content && normalizedText(content) !== normalizedText(params.title)) {
+  const content = stripMemoPrefix(params.content);
+  if (!isContentTooCloseToInput(content, params.title, params.fallbackText)) {
     return content;
   }
 
@@ -514,12 +603,8 @@ function buildDistinctContent(params: {
     params.context?.currentSituation ? `상황: ${params.context.currentSituation}` : "",
     params.context?.currentState ? `상태: ${params.context.currentState}` : "",
   ].filter(Boolean);
-  const fallback =
-    params.fallbackText.trim() && normalizedText(params.fallbackText) !== normalizedText(params.title)
-      ? params.fallbackText.trim()
-      : inferActionContent(params.title);
 
-  return [...contextParts, `메모: ${fallback}`].join(" / ");
+  return [...contextParts, inferActionContent(params.title)].join(" / ");
 }
 
 function normalizeFallbackTitle(text: string) {
@@ -527,8 +612,32 @@ function normalizeFallbackTitle(text: string) {
     .replace(/\s+/g, " ")
     .replace(/했던거/g, "한 내용")
     .replace(/제대로\s*/g, "")
+    .replace(/^(그리고|또|그거 말고도|전반적으로)\s*/g, "")
     .trim()
     .slice(0, 80);
+}
+
+function actionizeFallbackTitle(text: string) {
+  let title = normalizeFallbackTitle(text)
+    .replace(/\s*(확인해야\s*하고|확인해야하고|확인해보고|확인하고|확인)$/g, "")
+    .replace(/\s*(점검해야\s*하고|점검해야하고|점검해보고|점검하고|점검)$/g, "")
+    .replace(/\s*(테스트해야\s*하고|테스트해야하고|테스트해보고|테스트하고|테스트)$/g, "")
+    .replace(/\s*(해야\s*하고|해야하고|해보고|하고)$/g, "")
+    .replace(/잘\s*되는지/g, "정상 동작 여부")
+    .replace(/잘\s*하는지/g, "처리 품질")
+    .replace(/반영되는지/g, "반영 여부")
+    .replace(/문제\s*없는지도?/g, "문제 여부")
+    .replace(/불편한\s*거\s*없는지|불편한\s*것\s*없는지/g, "불편한 지점")
+    .trim();
+
+  if (!title) {
+    title = "입력 내용 정리";
+  }
+
+  if (/점검|테스트|확인|검토|리뷰|여부|품질|지점$/.test(title)) {
+    return `${title} 점검하기`.replace(/점검 점검하기$/, "점검하기");
+  }
+  return `${title} 확인하기`;
 }
 
 function expandCompoundKoreanTask(text: string) {
@@ -554,9 +663,13 @@ function expandCompoundKoreanTask(text: string) {
   }
 
   return trimmed
-    .split(/\n|[;；]|그리고|그다음|다음으로|한 다음|하고 나서|,\s*/)
+    .split(/\n|[;；]|그리고|그거 말고도|그다음|다음으로|한 다음|하고 나서|,\s*/)
     .flatMap((part) => part.split(/(?<=\S)하고\s+(?=\S)/))
-    .map((part) => normalizeFallbackTitle(part))
+    .map((part) =>
+      /확인|점검|테스트|잘\s*되는지|잘\s*하는지|문제\s*없는지|불편|반영되는지/.test(part)
+        ? actionizeFallbackTitle(part)
+        : normalizeFallbackTitle(part),
+    )
     .filter((part) => part.length >= 3);
 }
 
@@ -577,6 +690,9 @@ function normalizeBrainDumpDraft(
   const entry = value as Record<string, unknown>;
   const title = typeof entry.title === "string" ? entry.title.trim() : "";
   if (!title) {
+    return null;
+  }
+  if (isLikelyUnprocessedBrainDumpTitle(title, fallbackText)) {
     return null;
   }
 
@@ -600,7 +716,7 @@ function normalizeBrainDumpDraft(
     content: contextPrefix && !content.startsWith("상황:") ? `${contextPrefix} / ${content}` : content,
     itemType,
     horizon,
-    priority: normalizePriority(entry.priority),
+    priority: entry.priority == null ? inferFallbackPriority(`${title} ${content}`) : normalizePriority(entry.priority),
     project: typeof entry.project === "string" ? entry.project.trim() : "",
     tags: normalizeStringArray(entry.tags),
   };
@@ -611,7 +727,9 @@ function splitBrainDumpFallback(text: string): BrainDumpItemDraft[] {
     .split(/\n|[;；]|(?<=[.!?。！？])\s+/)
     .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
     .filter(Boolean);
-  const chunks = lines.length > 1 ? lines : expandCompoundKoreanTask(text);
+  const chunks = (lines.length ? lines : [text])
+    .flatMap((line) => expandCompoundKoreanTask(line))
+    .filter(Boolean);
   const uniqueChunks = Array.from(new Set(chunks.length ? chunks : [text.trim()]));
 
   return uniqueChunks.slice(0, 12).map((chunk) => {
@@ -626,7 +744,7 @@ function splitBrainDumpFallback(text: string): BrainDumpItemDraft[] {
       }),
       itemType: classification.itemType,
       horizon: classification.horizon,
-      priority: classification.priority,
+      priority: inferFallbackPriority(`${title} ${chunk}`),
       project: classification.project,
       tags: classification.tags,
     };
@@ -2122,6 +2240,29 @@ function isBrainDumpChecklist(text: string) {
   return checklistScore >= 2 || (checklistScore >= 1 && conjunctionScore >= 2);
 }
 
+function looksLikeScheduleCommand(text: string) {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized.includes("일정") && !normalized.includes("schedule")) {
+    return false;
+  }
+  return /추가|등록|넣어|잡아|생성|만들|add|create|schedule/.test(normalized);
+}
+
+function shouldBypassCommandRouterForBrainDump(payload: CommandPayload) {
+  const text = payload.text.trim();
+  const normalized = text.toLowerCase();
+  if (payload.selectedItemIds.length > 0 || isExplicitWorklogCommand(text) || looksLikeScheduleCommand(text)) {
+    return false;
+  }
+  if (isBrainDumpChecklist(text)) {
+    return true;
+  }
+  if (text.length >= 35) {
+    return true;
+  }
+  return /해야|하려고|하고\s|그리고|문제|걱정|컨디션|상태|할일|todo|brain dump/.test(normalized);
+}
+
 function routeFastLocalCommand(payload: CommandPayload): RouterResult | null {
   const text = payload.text.trim().toLowerCase();
   const hasSelection = payload.selectedItemIds.length > 0;
@@ -2276,7 +2417,7 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
   }
 
   const settings = await getUserSettingsFromSupabase(user);
-  if (isBrainDumpChecklist(text)) {
+  if (shouldBypassCommandRouterForBrainDump(payload)) {
     actions.push({
       type: "create_items",
       payload: { text },
