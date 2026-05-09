@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { createAuthClient, setSessionCookies } from "@/lib/auth";
+import { getAuthConfirmedUrl } from "@/lib/env";
 
 const authSchema = z.object({
   email: z.string().email(),
@@ -16,7 +17,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, demo: true });
     }
 
-    const { data, error } = await auth.auth.signUp(body);
+    const { data, error } = await auth.auth.signUp({
+      email: body.email,
+      password: body.password,
+      options: {
+        emailRedirectTo: getAuthConfirmedUrl(),
+      },
+    });
     if (error) {
       throw new Error(error.message);
     }

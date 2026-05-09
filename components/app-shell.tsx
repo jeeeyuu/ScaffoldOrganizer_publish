@@ -651,8 +651,8 @@ export function AppShell({ initialData }: Props) {
   }
 
   function toggleAuthMode() {
-    setAuthMode((mode) => (mode === "login" ? "signup" : "login"));
     setAuthDraft({ email: "", password: "" });
+    setAuthMode(authMode === "login" ? "signup" : "login");
   }
 
   async function logout() {
@@ -777,17 +777,21 @@ export function AppShell({ initialData }: Props) {
       </header>
 
       {!bootstrap.user ? (
-        <section className="auth-panel">
+        <section key={authMode} className="auth-panel">
           <h2>{authMode === "login" ? "Login" : "Sign up"}</h2>
           <input
+            key={`email-${authMode}`}
             type="email"
             placeholder="email"
+            autoComplete="off"
             value={authDraft.email}
             onChange={(event) => setAuthDraft({ ...authDraft, email: event.target.value })}
           />
           <input
+            key={`password-${authMode}`}
             type="password"
             placeholder="password"
+            autoComplete={authMode === "login" ? "current-password" : "new-password"}
             value={authDraft.password}
             onChange={(event) => setAuthDraft({ ...authDraft, password: event.target.value })}
           />

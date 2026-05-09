@@ -86,6 +86,7 @@ cp .env.example .env.local
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_SITE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `ADMIN_EMAILS`
 - `DEV_PREVIEW_AUTH_BYPASS`
@@ -96,6 +97,13 @@ cp .env.example .env.local
 - `GEMINI_MODEL_TASK_STRUCTURER`
 
 `DEV_PREVIEW_AUTH_BYPASS=true`이면 개발 서버에서 로그인 없이 demo user로 전체 GUI를 확인할 수 있습니다.
+
+Vercel 배포에서는 `NEXT_PUBLIC_SITE_URL`을 실제 배포 URL로 설정합니다.
+
+Supabase Dashboard의 `Authentication → URL Configuration`도 같이 설정해야 합니다.
+
+- `Site URL`: 실제 Vercel 배포 URL
+- `Redirect URLs`: 실제 Vercel 배포 URL, `https://your-app.vercel.app/auth/confirmed`, `http://localhost:3000`, `http://localhost:3000/auth/confirmed`
 
 ## 실행
 
