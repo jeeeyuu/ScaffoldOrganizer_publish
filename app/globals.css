@@ -390,17 +390,6 @@ textarea {
   box-shadow: 2px 2px 0 #bdeeff;
 }
 
-.auth-notice {
-  margin: 0;
-  border: 1px solid #bdeeff;
-  border-radius: 14px;
-  background: #f8fbff;
-  color: #3d86a7;
-  padding: 9px 10px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 .trash-btn {
   min-width: 24px;
   color: var(--red);

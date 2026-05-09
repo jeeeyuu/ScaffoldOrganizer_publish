@@ -657,7 +657,7 @@ export function AppShell({ initialData }: Props) {
       }
       setFeedback(
         result.needsConfirmation
-          ? "계정이 생성되었습니다. 이메일 인증 메일을 확인한 뒤 다시 로그인해주세요."
+          ? "Account created. Please log in."
           : authMode === "login"
             ? "Logged in"
             : "Account created",
@@ -823,11 +823,6 @@ export function AppShell({ initialData }: Props) {
             <h2>{authMode === "login" ? "Login" : "Sign up"}</h2>
             {bootstrap.user?.isGuest ? (
               <p className="meta">게스트 데이터를 계정에 저장하려면 로그인하거나 회원가입하세요.</p>
-            ) : null}
-            {authMode === "signup" ? (
-              <p className="auth-notice">
-                계정 생성 후 인증 메일을 확인해야 로그인이 가능합니다. 메일함과 스팸함을 확인해주세요.
-              </p>
             ) : null}
             <input
               key={`email-${authMode}`}

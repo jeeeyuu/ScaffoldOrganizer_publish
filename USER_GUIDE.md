@@ -29,8 +29,6 @@
 
 아래 이미지는 사용법 설명을 위한 SVG mock screenshot입니다.
 
-처음 계정을 만들면 인증 메일을 확인해야 로그인이 가능합니다. 메일함과 스팸함을 확인해주세요.
-
 ![Login screen](/screenshot/login.svg)
 
 ![Active tab](/screenshot/active.svg)
