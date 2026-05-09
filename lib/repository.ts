@@ -1530,13 +1530,7 @@ async function createInboxItemFromBrainDump(user: AuthUser | null, draft: BrainD
 
 async function createInboxItemsFromBrainDump(user: AuthUser | null, text: string, settings: UserSettingsRecord) {
   const drafts = (await processBrainDumpWithGemini(text, settings)) ?? splitBrainDumpFallback(text);
-  const created: ItemRecord[] = [];
-
-  for (const draft of drafts) {
-    created.push(await createInboxItemFromBrainDump(user, draft));
-  }
-
-  return created;
+  return Promise.all(drafts.map((draft) => createInboxItemFromBrainDump(user, draft)));
 }
 
 export async function listWorklogs(user: AuthUser | null) {
@@ -2067,41 +2061,84 @@ function createRouterFeedback(actions: RouterAction[]) {
   return "명령을 처리했습니다.";
 }
 
+function routeFastLocalCommand(payload: CommandPayload): RouterResult | null {
+  const text = payload.text.trim().toLowerCase();
+  const hasSelection = payload.selectedItemIds.length > 0;
+  const actions: RouterAction[] = [];
+
+  if (hasSelection && (text.includes("장기") || text.includes("long-term") || text.includes("long term"))) {
+    actions.push({ type: "move_selected_item_to_long_term" });
+  } else if (hasSelection && (text.includes("doing") || text.includes("진행") || text.includes("시작"))) {
+    actions.push({ type: "mark_selected_item_doing" });
+  } else if (hasSelection && (text.includes("완료") || text.includes("끝") || text.includes("done"))) {
+    actions.push({ type: "mark_selected_item_done" });
+  } else if (text.includes("업무일지") || text.includes("work log") || text.includes("worklog")) {
+    actions.push({ type: "generate_worklog" });
+  }
+
+  if (actions.length === 0) {
+    return null;
+  }
+
+  return {
+    mode: "command",
+    actions,
+    userFeedback: createRouterFeedback(actions),
+  };
+}
+
 async function applyRouterActions(
   user: AuthUser | null,
   router: RouterResult,
   payload: CommandPayload,
   text: string,
+  userSettings?: UserSettingsRecord,
 ) {
   let draft: WorklogDraftResult | null = null;
+  const createdItems: ItemRecord[] = [];
+  const updatedItems: ItemRecord[] = [];
+  const createdSchedules: ScheduleRecord[] = [];
 
   for (const action of router.actions) {
     if (action.type === "move_selected_item_to_long_term") {
-      for (const id of payload.selectedItemIds) {
-        await updateItem(user, id, {
-          status: "todo",
-          horizon: "long_term",
-          completedAt: null,
-        });
-      }
+      updatedItems.push(
+        ...(await Promise.all(
+          payload.selectedItemIds.map((id) =>
+            updateItem(user, id, {
+              status: "todo",
+              horizon: "long_term",
+              completedAt: null,
+            }),
+          ),
+        )),
+      );
     }
 
     if (action.type === "mark_selected_item_doing") {
-      for (const id of payload.selectedItemIds) {
-        await updateItem(user, id, {
-          status: "doing",
-          completedAt: null,
-        });
-      }
+      updatedItems.push(
+        ...(await Promise.all(
+          payload.selectedItemIds.map((id) =>
+            updateItem(user, id, {
+              status: "doing",
+              completedAt: null,
+            }),
+          ),
+        )),
+      );
     }
 
     if (action.type === "mark_selected_item_done") {
-      for (const id of payload.selectedItemIds) {
-        await updateItem(user, id, {
-          status: "done",
-          completedAt: isoNow(),
-        });
-      }
+      const completedAt = isoNow();
+      updatedItems.push(
+        ...(await Promise.all(
+          payload.selectedItemIds.map((id) =>
+            updateItem(user, id, {
+              status: "done",
+              completedAt,
+            }),
+          ),
+        )),
+      );
     }
 
     if (action.type === "generate_worklog") {
@@ -2122,7 +2159,7 @@ async function applyRouterActions(
           ? action.payload.notes
           : text;
 
-      await createSchedule(user, { title, notes, scheduleDate });
+      createdSchedules.push(await createSchedule(user, { title, notes, scheduleDate }));
     }
 
     if (action.type === "create_item" || action.type === "create_items") {
@@ -2132,12 +2169,17 @@ async function applyRouterActions(
           : typeof action.payload?.text === "string" && action.payload.text.trim()
             ? action.payload.text.trim()
             : text;
-      const settings = await getUserSettingsFromSupabase(user);
-      await createInboxItemsFromBrainDump(user, sourceText, settings);
+      const settings = userSettings ?? (await getUserSettingsFromSupabase(user));
+      createdItems.push(...(await createInboxItemsFromBrainDump(user, sourceText, settings)));
     }
   }
 
-  return draft;
+  return {
+    worklogDraft: draft,
+    createdItems,
+    updatedItems,
+    createdSchedules,
+  };
 }
 
 export async function runCommand(user: AuthUser | null, payload: CommandPayload) {
@@ -2145,6 +2187,9 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
   const actions: RouterAction[] = [];
   const lower = text.toLowerCase();
   let draft: WorklogDraftResult | null = null;
+  const createdItems: ItemRecord[] = [];
+  const updatedItems: ItemRecord[] = [];
+  const createdSchedules: ScheduleRecord[] = [];
 
   if (!text) {
     return {
@@ -2154,26 +2199,41 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
         userFeedback: "빈 입력입니다.",
       } satisfies RouterResult,
       worklogDraft: null,
+      createdItems: [],
+      updatedItems: [],
+      createdSchedules: [],
+    };
+  }
+
+  const fastRouter = routeFastLocalCommand(payload);
+  if (fastRouter) {
+    const result = await applyRouterActions(user, fastRouter, payload, text);
+    return {
+      router: fastRouter,
+      ...result,
     };
   }
 
   const settings = await getUserSettingsFromSupabase(user);
   const geminiRouter = await routeCommandWithGemini(payload, settings);
   if (geminiRouter) {
+    const result = await applyRouterActions(user, geminiRouter, payload, text, settings);
     return {
       router: geminiRouter,
-      worklogDraft: await applyRouterActions(user, geminiRouter, payload, text),
+      ...result,
     };
   }
 
   if (text.includes("장기") && payload.selectedItemIds.length > 0) {
     actions.push({ type: "move_selected_item_to_long_term" });
     for (const id of payload.selectedItemIds) {
-      await updateItem(user, id, {
-        status: "todo",
-        horizon: "long_term",
-        completedAt: null,
-      });
+      updatedItems.push(
+        await updateItem(user, id, {
+          status: "todo",
+          horizon: "long_term",
+          completedAt: null,
+        }),
+      );
     }
   }
 
@@ -2181,10 +2241,12 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
     if (payload.selectedItemIds.length > 0) {
       actions.push({ type: "mark_selected_item_doing" });
       for (const id of payload.selectedItemIds) {
-        await updateItem(user, id, {
-          status: "doing",
-          completedAt: null,
-        });
+        updatedItems.push(
+          await updateItem(user, id, {
+            status: "doing",
+            completedAt: null,
+          }),
+        );
       }
     }
   }
@@ -2193,10 +2255,12 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
     if (payload.selectedItemIds.length > 0) {
       actions.push({ type: "mark_selected_item_done" });
       for (const id of payload.selectedItemIds) {
-        await updateItem(user, id, {
-          status: "done",
-          completedAt: isoNow(),
-        });
+        updatedItems.push(
+          await updateItem(user, id, {
+            status: "done",
+            completedAt: isoNow(),
+          }),
+        );
       }
     }
   }
@@ -2208,11 +2272,13 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
 
   if (text.includes("일정")) {
     actions.push({ type: "create_schedule", payload: { text } });
-    await createSchedule(user, {
-      title: text.slice(0, 80),
-      notes: text,
-      scheduleDate: todayDate(),
-    });
+    createdSchedules.push(
+      await createSchedule(user, {
+        title: text.slice(0, 80),
+        notes: text,
+        scheduleDate: todayDate(),
+      }),
+    );
   }
 
   if (actions.length === 0) {
@@ -2220,7 +2286,7 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
       type: "create_items",
       payload: { text },
     });
-    await createInboxItemsFromBrainDump(user, text, settings);
+    createdItems.push(...(await createInboxItemsFromBrainDump(user, text, settings)));
   }
 
   const router: RouterResult = {
@@ -2237,5 +2303,8 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
   return {
     router,
     worklogDraft: draft,
+    createdItems,
+    updatedItems,
+    createdSchedules,
   };
 }

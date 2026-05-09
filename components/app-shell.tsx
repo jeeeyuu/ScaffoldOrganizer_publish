@@ -77,6 +77,16 @@ interface ScheduleDraft {
   scheduleDate: string;
 }
 
+interface CommandResponse {
+  router: {
+    userFeedback?: string;
+  };
+  worklogDraft?: WorklogDraftState | null;
+  createdItems?: ItemRecord[];
+  updatedItems?: ItemRecord[];
+  createdSchedules?: ScheduleRecord[];
+}
+
 interface CalendarDay {
   date: string;
   day: number;
@@ -382,6 +392,107 @@ export function AppShell({ initialData }: Props) {
     setBootstrap((current) => ({ ...current, status }));
   }
 
+  function applyUpdatedItem(updatedItem: ItemRecord, requestedStatus?: ItemRecord["status"]) {
+    setBootstrap((current) => {
+      const previousItem = current.items.find((item) => item.id === updatedItem.id);
+      const shouldAddStatusEvent =
+        requestedStatus && previousItem && previousItem.status !== requestedStatus;
+      const eventTime = new Date().toISOString();
+      const nextEvents: StatusEventRecord[] = shouldAddStatusEvent
+        ? [
+            ...current.events,
+            {
+              id: `local-${updatedItem.id}-${eventTime}`,
+              itemId: updatedItem.id,
+              eventType: "status_change",
+              fromStatus: previousItem.status,
+              toStatus: requestedStatus,
+              createdAt: eventTime,
+            },
+          ]
+        : current.events;
+
+      return {
+        ...current,
+        items: current.items.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
+        events: nextEvents,
+      };
+    });
+  }
+
+  function removeLocalItem(itemId: string) {
+    setBootstrap((current) => ({
+      ...current,
+      items: current.items.filter((item) => item.id !== itemId),
+      events: current.events.filter((event) => event.itemId !== itemId),
+    }));
+  }
+
+  function addLocalItems(items: ItemRecord[]) {
+    if (items.length === 0) {
+      return;
+    }
+
+    setBootstrap((current) => ({
+      ...current,
+      items: [
+        ...items,
+        ...current.items.filter((entry) => !items.some((item) => item.id === entry.id)),
+      ],
+    }));
+  }
+
+  function addLocalWorklog(worklog: WorklogRecord) {
+    setBootstrap((current) => ({
+      ...current,
+      worklogs: [
+        worklog,
+        ...current.worklogs.filter((entry) => entry.id !== worklog.id),
+      ].sort((a, b) => b.logDate.localeCompare(a.logDate) || b.updatedAt.localeCompare(a.updatedAt)),
+    }));
+  }
+
+  function addLocalSchedule(schedule: ScheduleRecord) {
+    setBootstrap((current) => ({
+      ...current,
+      schedules: [
+        schedule,
+        ...current.schedules.filter((entry) => entry.id !== schedule.id),
+      ].sort((a, b) => b.scheduleDate.localeCompare(a.scheduleDate) || b.updatedAt.localeCompare(a.updatedAt)),
+    }));
+  }
+
+  function removeLocalSchedule(scheduleId: string) {
+    setBootstrap((current) => ({
+      ...current,
+      schedules: current.schedules.filter((schedule) => schedule.id !== scheduleId),
+    }));
+  }
+
+  function applyLocalSettings(settings: UserSettingsRecord) {
+    setBootstrap((current) => ({ ...current, settings }));
+  }
+
+  function upsertLocalAdminVariable(variable: AdminVariableRecord) {
+    setBootstrap((current) => ({
+      ...current,
+      adminVariables: [
+        variable,
+        ...current.adminVariables.filter((entry) => entry.id !== variable.id && entry.key !== variable.key),
+      ].sort((a, b) => a.key.localeCompare(b.key)),
+    }));
+  }
+
+  function applyCommandResponse(result: CommandResponse) {
+    addLocalItems(result.createdItems ?? []);
+    for (const item of result.updatedItems ?? []) {
+      applyUpdatedItem(item, item.status);
+    }
+    for (const schedule of result.createdSchedules ?? []) {
+      addLocalSchedule(schedule);
+    }
+  }
+
   async function runBusy<T>(key: string, task: () => Promise<T>) {
     if (busyKey) {
       return null;
@@ -398,7 +509,7 @@ export function AppShell({ initialData }: Props) {
   useEffect(() => {
     const timer = setInterval(() => {
       void refreshStatus();
-    }, 5000);
+    }, 30000);
 
     return () => {
       clearInterval(timer);
@@ -461,8 +572,8 @@ export function AppShell({ initialData }: Props) {
         throw new Error(await readErrorMessage(response, "Failed to process command"));
       }
 
-      const result = await response.json();
-      await refreshBootstrap();
+      const result = (await response.json()) as CommandResponse;
+      applyCommandResponse(result);
       setSelectedIds([]);
       setCommandInput("");
 
@@ -497,10 +608,10 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to update status");
+        throw new Error(await readErrorMessage(response, "Failed to update status"));
       }
 
-      await refreshBootstrap();
+      applyUpdatedItem((await response.json()) as ItemRecord, status);
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to update status", "error");
     });
@@ -520,10 +631,10 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to update horizon");
+        throw new Error(await readErrorMessage(response, "Failed to update horizon"));
       }
 
-      await refreshBootstrap();
+      applyUpdatedItem((await response.json()) as ItemRecord, "todo");
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to update horizon", "error");
     });
@@ -542,11 +653,11 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save item");
+        throw new Error(await readErrorMessage(response, "Failed to save item"));
       }
 
+      applyUpdatedItem((await response.json()) as ItemRecord);
       setEditingDraft(null);
-      await refreshBootstrap();
       setFeedback("Item updated", "success");
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to save item", "error");
@@ -562,12 +673,12 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to delete item");
+        throw new Error(await readErrorMessage(response, "Failed to delete item"));
       }
 
+      removeLocalItem(itemId);
       setEditingDraft(null);
       setSelectedIds((current) => current.filter((id) => id !== itemId));
-      await refreshBootstrap();
       setFeedback("Item deleted", "success");
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to delete item", "error");
@@ -618,16 +729,16 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save worklog");
+        throw new Error(await readErrorMessage(response, "Failed to save worklog"));
       }
 
-      const saved = await response.json();
+      const saved = (await response.json()) as WorklogRecord;
+      addLocalWorklog(saved);
       setWorklogDraft((current) => ({
         ...current,
         savedId: saved.id,
         statusText: `Saved #${saved.id}`,
       }));
-      await refreshBootstrap();
       setFeedback("Worklog saved", "success");
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to save worklog", "error");
@@ -690,11 +801,11 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to create schedule");
+        throw new Error(await readErrorMessage(response, "Failed to create schedule"));
       }
 
+      addLocalSchedule((await response.json()) as ScheduleRecord);
       setScheduleDraft({ title: "", notes: "", scheduleDate: todayInputDate() });
-      await refreshBootstrap();
       setFeedback("Schedule added", "success");
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to create schedule", "error");
@@ -710,10 +821,10 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to delete schedule");
+        throw new Error(await readErrorMessage(response, "Failed to delete schedule"));
       }
 
-      await refreshBootstrap();
+      removeLocalSchedule(id);
       setFeedback("Schedule deleted", "success");
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to delete schedule", "error");
@@ -735,7 +846,7 @@ export function AppShell({ initialData }: Props) {
         throw new Error(await readErrorMessage(response, "Failed to save settings"));
       }
 
-      await refreshBootstrap();
+      applyLocalSettings((await response.json()) as UserSettingsRecord);
       setFeedback("Settings saved", "success");
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to save settings", "error");
@@ -751,11 +862,11 @@ export function AppShell({ initialData }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save variable");
+        throw new Error(await readErrorMessage(response, "Failed to save variable"));
       }
 
+      upsertLocalAdminVariable((await response.json()) as AdminVariableRecord);
       setAdminDraft({ key: "", value: "", description: "" });
-      await refreshBootstrap();
       setFeedback("Variable saved", "success");
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to save variable", "error");
