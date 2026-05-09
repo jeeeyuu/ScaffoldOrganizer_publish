@@ -4,6 +4,24 @@ import { cookies } from "next/headers";
 import { ACCESS_COOKIE } from "@/lib/auth";
 import { getSupabaseConfig, isSupabaseConfigured } from "@/lib/env";
 
+export function createServiceSupabase() {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  const { url, serviceRoleKey } = getSupabaseConfig();
+  if (!serviceRoleKey) {
+    return null;
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
 export async function createServerSupabase() {
   if (!isSupabaseConfigured()) {
     return null;

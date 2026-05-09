@@ -82,7 +82,10 @@ export interface AuthUser {
   id: string;
   email: string;
   isAdmin: boolean;
+  nickname?: string;
   isPreview?: boolean;
+  isGuest?: boolean;
+  guestExpiresAt?: string;
 }
 
 export interface StatusSnapshot {

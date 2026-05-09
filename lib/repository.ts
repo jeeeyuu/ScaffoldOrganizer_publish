@@ -14,7 +14,7 @@ import {
   isGeminiConfigured,
 } from "@/lib/gemini";
 import { PROMPT_REGISTRY } from "@/lib/prompts";
-import { createServerSupabase } from "@/lib/supabase/server";
+import { createServerSupabase, createServiceSupabase } from "@/lib/supabase/server";
 import type {
   BootstrapPayload,
   AdminVariableRecord,
@@ -95,6 +95,8 @@ const demoStore = globalThis.__scaffoldOrganizerDemoStore ??= {
   adminVariables: clone(demoAdminVariables),
 };
 
+const GUEST_SESSION_HOURS = 36;
+
 const LEGACY_AGENCY_FULL = ["농촌", "진흥청"].join("");
 const LEGACY_AGENCY_SHORT = ["농", "진", "청"].join("");
 const LEGACY_LONG_READ = ["long", "read"].join("-");
@@ -163,6 +165,24 @@ function dateKey(date: Date) {
 
 function todayDate() {
   return dateKey(new Date());
+}
+
+function guestExpiresAt() {
+  return new Date(Date.now() + GUEST_SESSION_HOURS * 60 * 60 * 1000).toISOString();
+}
+
+function isGuestUser(user: AuthUser | null): user is AuthUser & { isGuest: true } {
+  return Boolean(user?.isGuest);
+}
+
+function guestSessionId(user: AuthUser | null) {
+  return isGuestUser(user) ? user.id : null;
+}
+
+function assertGuestActive(expiresAt: string | null | undefined) {
+  if (!expiresAt || new Date(expiresAt).getTime() <= Date.now()) {
+    throw new Error("Guest session expired. Please create an account or log in.");
+  }
 }
 
 function archiveDateForItem(item: Pick<ItemRecord, "id" | "updatedAt">, events: StatusEventRecord[]) {
@@ -289,6 +309,83 @@ function mapAdminVariableRow(row: Record<string, unknown>): AdminVariableRecord 
     description: String(row.description ?? ""),
     updatedAt: String(row.updated_at ?? ""),
   };
+}
+
+function mapGuestSettingsRow(row: Record<string, unknown> | null): UserSettingsRecord {
+  return {
+    nickname: String(row?.nickname ?? ""),
+    worklogExportPath: "",
+    customPrompt: String(row?.custom_prompt ?? ""),
+    calendarWeekStartsOn: row?.calendar_week_starts_on === "sunday" ? "sunday" : "monday",
+  };
+}
+
+async function getGuestSession(sessionId: string) {
+  const supabase = createServiceSupabase();
+  if (!supabase) {
+    throw new Error("Guest mode requires SUPABASE_SERVICE_ROLE_KEY.");
+  }
+
+  await supabase.from("guest_sessions").delete().lt("expires_at", isoNow());
+
+  const { data, error } = await supabase
+    .from("guest_sessions")
+    .select("*")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error("Guest session not found.");
+  }
+
+  const expiresAt = String(data.expires_at ?? "");
+  if (!expiresAt || new Date(expiresAt).getTime() <= Date.now()) {
+    await supabase.from("guest_sessions").delete().eq("id", sessionId);
+    throw new Error("Guest session expired. Please create an account or log in.");
+  }
+  return data as Record<string, unknown>;
+}
+
+async function getGuestSupabase(user: AuthUser | null) {
+  const sessionId = guestSessionId(user);
+  if (!sessionId) {
+    return null;
+  }
+
+  const supabase = createServiceSupabase();
+  if (!supabase) {
+    throw new Error("Guest mode requires SUPABASE_SERVICE_ROLE_KEY.");
+  }
+
+  await getGuestSession(sessionId);
+  return { supabase, sessionId };
+}
+
+export async function createGuestSession() {
+  const supabase = createServiceSupabase();
+  if (!supabase) {
+    throw new Error("Guest mode requires SUPABASE_SERVICE_ROLE_KEY.");
+  }
+
+  const { data, error } = await supabase
+    .from("guest_sessions")
+    .insert({
+      expires_at: guestExpiresAt(),
+      nickname: "Guest",
+      calendar_week_starts_on: "monday",
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return String(data.id);
 }
 
 function supabaseUserId(user: AuthUser | null) {
@@ -621,6 +718,21 @@ async function listItemsFromSupabase(user: AuthUser | null) {
     return clone(demoStore.items);
   }
 
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { data, error } = await guest.supabase
+      .from("guest_items")
+      .select("*")
+      .eq("guest_session_id", guest.sessionId)
+      .order("updated_at", { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row) => mapItemRow(row));
+  }
+
   const supabase = await createServerSupabase();
   if (!supabase) {
     return clone(demoStore.items);
@@ -644,6 +756,21 @@ async function listItemsFromSupabase(user: AuthUser | null) {
 async function listWorklogsFromSupabase(user: AuthUser | null) {
   if (usesDemoStore(user)) {
     return clone(demoStore.worklogs);
+  }
+
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { data, error } = await guest.supabase
+      .from("guest_worklogs")
+      .select("*")
+      .eq("guest_session_id", guest.sessionId)
+      .order("log_date", { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row) => mapWorklogRow(row));
   }
 
   const supabase = await createServerSupabase();
@@ -671,6 +798,21 @@ async function listSchedulesFromSupabase(user: AuthUser | null) {
     return clone(demoStore.schedules);
   }
 
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { data, error } = await guest.supabase
+      .from("guest_schedules")
+      .select("*")
+      .eq("guest_session_id", guest.sessionId)
+      .order("schedule_date", { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row) => mapScheduleRow(row));
+  }
+
   const supabase = await createServerSupabase();
   if (!supabase) {
     return clone(demoStore.schedules);
@@ -694,6 +836,22 @@ async function listSchedulesFromSupabase(user: AuthUser | null) {
 async function listStatusEventsFromSupabase(user: AuthUser | null) {
   if (usesDemoStore(user)) {
     return clone(demoStore.events);
+  }
+
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { data, error } = await guest.supabase
+      .from("guest_events")
+      .select("*")
+      .eq("guest_session_id", guest.sessionId)
+      .eq("event_type", "status_change")
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row) => mapStatusEventRow(row));
   }
 
   const supabase = await createServerSupabase();
@@ -722,6 +880,11 @@ async function getUserSettingsFromSupabase(user: AuthUser | null) {
     return clone(demoStore.settings);
   }
 
+  const sessionId = guestSessionId(user);
+  if (sessionId) {
+    return mapGuestSettingsRow(await getGuestSession(sessionId));
+  }
+
   const supabase = await createServerSupabase();
   if (!supabase) {
     return clone(demoStore.settings);
@@ -737,6 +900,22 @@ async function getUserSettingsFromSupabase(user: AuthUser | null) {
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (!data && user?.nickname) {
+    const settings = {
+      ...demoSettings,
+      nickname: user.nickname,
+    };
+    await supabase.from("user_settings").upsert({
+      user_id: userId,
+      nickname: settings.nickname,
+      worklog_export_path: settings.worklogExportPath,
+      custom_prompt: settings.customPrompt,
+      calendar_week_starts_on: settings.calendarWeekStartsOn,
+      updated_at: isoNow(),
+    });
+    return settings;
   }
 
   return mapSettingsRow(data);
@@ -776,6 +955,10 @@ async function cleanupExpiredArchivedItems(user: AuthUser | null) {
       demoStore.items = demoStore.items.filter((item) => !expiredIds.includes(item.id));
       demoStore.events = demoStore.events.filter((event) => !event.itemId || !expiredIds.includes(event.itemId));
     }
+    return;
+  }
+
+  if (isGuestUser(user)) {
     return;
   }
 
@@ -972,6 +1155,55 @@ export async function updateItem(user: AuthUser | null, id: string, patch: ItemP
     return clone(nextItem);
   }
 
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { data: previous } = await guest.supabase
+      .from("guest_items")
+      .select("status")
+      .eq("id", id)
+      .eq("guest_session_id", guest.sessionId)
+      .single();
+
+    const { data, error } = await guest.supabase
+      .from("guest_items")
+      .update({
+        title: patch.title,
+        content: patch.content,
+        priority: patch.priority,
+        status: patch.status,
+        horizon: patch.horizon,
+        completed_at: patch.completedAt,
+        updated_at: isoNow(),
+      })
+      .eq("id", id)
+      .eq("guest_session_id", guest.sessionId)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const previousStatus = previous?.status as ItemStatus | undefined;
+    if (patch.status && previousStatus && previousStatus !== patch.status) {
+      const { error: eventError } = await guest.supabase.from("guest_events").insert({
+        guest_session_id: guest.sessionId,
+        item_id: id,
+        event_type: "status_change",
+        from_status: previousStatus,
+        to_status: patch.status,
+        payload: { title: data.title },
+        created_at: isoNow(),
+      });
+
+      if (eventError) {
+        throw new Error(eventError.message);
+      }
+    }
+
+    return mapItemRow(data);
+  }
+
   const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
@@ -1029,6 +1261,19 @@ export async function updateItem(user: AuthUser | null, id: string, patch: ItemP
 export async function deleteItem(user: AuthUser | null, id: string) {
   if (usesDemoStore(user)) {
     demoStore.items = demoStore.items.filter((item) => item.id !== id);
+    return;
+  }
+
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { error } = await guest.supabase
+      .from("guest_items")
+      .delete()
+      .eq("id", id)
+      .eq("guest_session_id", guest.sessionId);
+    if (error) {
+      throw new Error(error.message);
+    }
     return;
   }
 
@@ -1090,6 +1335,39 @@ async function createItemFromClassification(
   if (usesDemoStore(user)) {
     demoStore.items.unshift(item);
     return clone(item);
+  }
+
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { data, error } = await guest.supabase
+      .from("guest_items")
+      .insert({
+        guest_session_id: guest.sessionId,
+        item_type: item.itemType,
+        title: item.title,
+        content: item.content,
+        status: item.status,
+        horizon: item.horizon,
+        priority: item.priority,
+        source: item.source,
+        project: item.project,
+        tags: item.tags,
+        scheduled_date: item.scheduledDate,
+        due_date: item.dueDate,
+        created_at: item.createdAt,
+        updated_at: item.updatedAt,
+        completed_at: item.completedAt,
+        session_id: item.sessionId,
+        external_ref: item.externalRef,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return mapItemRow(data);
   }
 
   const supabase = await createServerSupabase();
@@ -1185,6 +1463,29 @@ export async function saveWorklog(user: AuthUser | null, input: {
     return clone(worklog);
   }
 
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { data, error } = await guest.supabase
+      .from("guest_worklogs")
+      .insert({
+        guest_session_id: guest.sessionId,
+        log_date: worklog.logDate,
+        title: worklog.title,
+        content_md: worklog.contentMd,
+        source_summary: worklog.sourceSummary,
+        created_at: worklog.createdAt,
+        updated_at: worklog.updatedAt,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return mapWorklogRow(data);
+  }
+
   const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
@@ -1231,6 +1532,28 @@ export async function createSchedule(
     return clone(schedule);
   }
 
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { data, error } = await guest.supabase
+      .from("guest_schedules")
+      .insert({
+        guest_session_id: guest.sessionId,
+        title: schedule.title,
+        notes: schedule.notes,
+        schedule_date: schedule.scheduleDate,
+        created_at: schedule.createdAt,
+        updated_at: schedule.updatedAt,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return mapScheduleRow(data);
+  }
+
   const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
@@ -1264,6 +1587,19 @@ export async function deleteSchedule(user: AuthUser | null, id: string) {
     return;
   }
 
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { error } = await guest.supabase
+      .from("guest_schedules")
+      .delete()
+      .eq("id", id)
+      .eq("guest_session_id", guest.sessionId);
+    if (error) {
+      throw new Error(error.message);
+    }
+    return;
+  }
+
   const supabase = await createServerSupabase();
   if (!supabase) {
     throw new Error("Supabase client unavailable");
@@ -1284,6 +1620,27 @@ export async function updateUserSettings(
   if (usesDemoStore(user)) {
     demoStore.settings = clone(settings);
     return clone(demoStore.settings);
+  }
+
+  const guest = await getGuestSupabase(user);
+  if (guest) {
+    const { data, error } = await guest.supabase
+      .from("guest_sessions")
+      .update({
+        nickname: settings.nickname,
+        custom_prompt: settings.customPrompt,
+        calendar_week_starts_on: settings.calendarWeekStartsOn,
+        updated_at: isoNow(),
+      })
+      .eq("id", guest.sessionId)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return mapGuestSettingsRow(data);
   }
 
   const supabase = await createServerSupabase();
@@ -1311,6 +1668,173 @@ export async function updateUserSettings(
   }
 
   return mapSettingsRow(data);
+}
+
+export async function mergeGuestSessionIntoUser(user: AuthUser | null, guestSessionId: string | null | undefined) {
+  if (!user || user.isGuest || !guestSessionId || !isSupabaseConfigured()) {
+    return;
+  }
+
+  const supabase = createServiceSupabase();
+  if (!supabase) {
+    return;
+  }
+
+  const { data: session, error: sessionError } = await supabase
+    .from("guest_sessions")
+    .select("*")
+    .eq("id", guestSessionId)
+    .maybeSingle();
+
+  if (sessionError || !session || session.merged_at) {
+    return;
+  }
+
+  assertGuestActive(String(session.expires_at ?? ""));
+
+  const { data: existingSettings } = await supabase
+    .from("user_settings")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!existingSettings) {
+    await supabase.from("user_settings").upsert({
+      user_id: user.id,
+      nickname: user.nickname || String(session.nickname ?? ""),
+      worklog_export_path: "",
+      custom_prompt: String(session.custom_prompt ?? ""),
+      calendar_week_starts_on: session.calendar_week_starts_on === "sunday" ? "sunday" : "monday",
+      updated_at: isoNow(),
+    });
+  }
+
+  const { data: guestItems } = await supabase
+    .from("guest_items")
+    .select("*")
+    .eq("guest_session_id", guestSessionId)
+    .order("created_at", { ascending: true });
+
+  const itemIdMap = new Map<string, string>();
+  for (const item of guestItems ?? []) {
+    const { data: inserted, error } = await supabase
+      .from("items")
+      .insert({
+        user_id: user.id,
+        item_type: item.item_type,
+        title: item.title,
+        content: item.content,
+        status: item.status,
+        horizon: item.horizon,
+        priority: item.priority,
+        source: item.source,
+        project: item.project,
+        tags: item.tags,
+        scheduled_date: item.scheduled_date,
+        due_date: item.due_date,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+        completed_at: item.completed_at,
+        external_ref: item.external_ref,
+      })
+      .select("id")
+      .single();
+
+    if (!error && inserted?.id) {
+      itemIdMap.set(String(item.id), String(inserted.id));
+    }
+  }
+
+  const { data: guestSchedules } = await supabase
+    .from("guest_schedules")
+    .select("*")
+    .eq("guest_session_id", guestSessionId);
+
+  if (guestSchedules?.length) {
+    const { error } = await supabase.from("schedules").insert(
+      guestSchedules.map((schedule) => ({
+        user_id: user.id,
+        title: schedule.title,
+        notes: schedule.notes,
+        schedule_date: schedule.schedule_date,
+        created_at: schedule.created_at,
+        updated_at: schedule.updated_at,
+      })),
+    );
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  const { data: guestWorklogs } = await supabase
+    .from("guest_worklogs")
+    .select("*")
+    .eq("guest_session_id", guestSessionId);
+
+  if (guestWorklogs?.length) {
+    const { error } = await supabase.from("worklogs").insert(
+      guestWorklogs.map((worklog) => ({
+        user_id: user.id,
+        log_date: worklog.log_date,
+        title: worklog.title,
+        content_md: worklog.content_md,
+        source_summary: worklog.source_summary,
+        created_at: worklog.created_at,
+        updated_at: worklog.updated_at,
+      })),
+    );
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  const { data: guestEvents } = await supabase
+    .from("guest_events")
+    .select("*")
+    .eq("guest_session_id", guestSessionId)
+    .order("created_at", { ascending: true });
+
+  if (guestEvents?.length) {
+    const mappedEvents = guestEvents.map((event) => ({
+      user_id: user.id,
+      item_id: event.item_id ? itemIdMap.get(String(event.item_id)) ?? null : null,
+      event_type: event.event_type,
+      from_status: event.from_status,
+      to_status: event.to_status,
+      payload: event.payload,
+      created_at: event.created_at,
+    }));
+    const { error } = await supabase.from("events").insert(mappedEvents);
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  await supabase
+    .from("guest_sessions")
+    .update({
+      merged_user_id: user.id,
+      merged_at: isoNow(),
+    })
+    .eq("id", guestSessionId);
+
+  await supabase.from("guest_sessions").delete().eq("id", guestSessionId);
+}
+
+export async function deleteUserAccount(user: AuthUser | null) {
+  if (!user || user.isGuest) {
+    throw new Error("Authentication required");
+  }
+
+  const supabase = createServiceSupabase();
+  if (!supabase) {
+    throw new Error("Account deletion requires SUPABASE_SERVICE_ROLE_KEY.");
+  }
+
+  const { error } = await supabase.auth.admin.deleteUser(user.id);
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
 export async function upsertAdminVariable(

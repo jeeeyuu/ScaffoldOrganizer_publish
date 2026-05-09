@@ -6,6 +6,8 @@ import type { AuthUser } from "@/lib/types";
 
 export const ACCESS_COOKIE = "so_access_token";
 export const REFRESH_COOKIE = "so_refresh_token";
+export const GUEST_COOKIE = "so_guest_session_id";
+export const GUEST_SESSION_HOURS = 36;
 
 export function isDevPreviewEnabled() {
   return process.env.NODE_ENV === "development" && process.env.DEV_PREVIEW_AUTH_BYPASS !== "false";
@@ -17,6 +19,15 @@ function devPreviewUser(): AuthUser {
     email: "dev-preview@local",
     isAdmin: true,
     isPreview: true,
+  };
+}
+
+function guestUser(id: string): AuthUser {
+  return {
+    id,
+    email: "guest@local",
+    isAdmin: false,
+    isGuest: true,
   };
 }
 
@@ -45,6 +56,11 @@ export function createAuthClient() {
   });
 }
 
+function metadataNickname(metadata: Record<string, unknown> | null | undefined) {
+  const nickname = metadata?.nickname;
+  return typeof nickname === "string" ? nickname.trim() : "";
+}
+
 export async function getCurrentUser(): Promise<AuthUser | null> {
   if (!isSupabaseConfigured()) {
     return {
@@ -57,6 +73,11 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 
   const cookieStore = await cookies();
   const accessToken = cookieStore.get(ACCESS_COOKIE)?.value;
+  const guestSessionId = cookieStore.get(GUEST_COOKIE)?.value;
+  if (!accessToken && guestSessionId) {
+    return guestUser(guestSessionId);
+  }
+
   if (!accessToken) {
     return isDevPreviewEnabled() ? devPreviewUser() : null;
   }
@@ -75,7 +96,29 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     id: data.user.id,
     email: data.user.email,
     isAdmin: isAdminEmail(data.user.email),
+    nickname: metadataNickname(data.user.user_metadata),
   };
+}
+
+export async function setGuestCookie(sessionId: string) {
+  const cookieStore = await cookies();
+  cookieStore.set(GUEST_COOKIE, sessionId, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: GUEST_SESSION_HOURS * 60 * 60,
+  });
+}
+
+export async function getGuestCookie() {
+  const cookieStore = await cookies();
+  return cookieStore.get(GUEST_COOKIE)?.value ?? null;
+}
+
+export async function clearGuestCookie() {
+  const cookieStore = await cookies();
+  cookieStore.delete(GUEST_COOKIE);
 }
 
 export async function setSessionCookies(session: {
@@ -106,4 +149,5 @@ export async function clearSessionCookies() {
   const cookieStore = await cookies();
   cookieStore.delete(ACCESS_COOKIE);
   cookieStore.delete(REFRESH_COOKIE);
+  cookieStore.delete(GUEST_COOKIE);
 }

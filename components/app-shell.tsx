@@ -57,6 +57,7 @@ interface WorklogDraftState {
 interface AuthDraft {
   email: string;
   password: string;
+  nickname: string;
 }
 
 interface ScheduleDraft {
@@ -309,7 +310,8 @@ export function AppShell({ initialData }: Props) {
   const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
   const [commandInput, setCommandInput] = useState("");
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-  const [authDraft, setAuthDraft] = useState<AuthDraft>({ email: "", password: "" });
+  const [authDraft, setAuthDraft] = useState<AuthDraft>({ email: "", password: "", nickname: "" });
+  const [showGuestAuth, setShowGuestAuth] = useState(false);
   const [selectedDate, setSelectedDate] = useState(todayInputDate());
   const [calendarMonth, setCalendarMonth] = useState(monthInputDate(todayInputDate()));
   const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft>({
@@ -421,6 +423,7 @@ export function AppShell({ initialData }: Props) {
   const archivedItems = bootstrap.items
     .filter((item) => item.status === "archived")
     .sort((a, b) => itemArchivedAt(b, bootstrap.events).localeCompare(itemArchivedAt(a, bootstrap.events)));
+  const showAuthPanel = !bootstrap.user || showGuestAuth;
 
   function toggleSelection(itemId: string) {
     setSelectedIds((current) =>
@@ -634,9 +637,12 @@ export function AppShell({ initialData }: Props) {
       const result = (await response.json()) as { needsConfirmation?: boolean };
       if (authMode === "signup") {
         setAuthMode("login");
-        setAuthDraft({ email: authDraft.email, password: "" });
+        setAuthDraft({ email: authDraft.email, password: "", nickname: "" });
       }
       await refreshBootstrap();
+      if (!result.needsConfirmation) {
+        setShowGuestAuth(false);
+      }
       setFeedback(
         result.needsConfirmation
           ? "Account created. Check your email to confirm login."
@@ -651,13 +657,14 @@ export function AppShell({ initialData }: Props) {
   }
 
   function toggleAuthMode() {
-    setAuthDraft({ email: "", password: "" });
+    setAuthDraft({ email: "", password: "", nickname: "" });
     setAuthMode(authMode === "login" ? "signup" : "login");
   }
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     await refreshBootstrap();
+    setShowGuestAuth(false);
     setActiveTab("inbox");
     setFeedback("Logged out", "success");
   }
@@ -749,9 +756,6 @@ export function AppShell({ initialData }: Props) {
         <div>
           <h1>ScaffoldOrganizer</h1>
           <p className="feedback" data-level={feedbackLevel}>{feedback}</p>
-          <p className="meta">
-            {bootstrap.user ? `${bootstrap.settings.nickname || bootstrap.user.email}` : "Signed out"}
-          </p>
         </div>
         {bootstrap.user ? (
           <div className="top-actions">
@@ -771,14 +775,30 @@ export function AppShell({ initialData }: Props) {
             {bootstrap.user.isAdmin ? (
               <button onClick={() => setActiveTab("admin")} disabled={busyKey !== null}>Admin</button>
             ) : null}
+            {bootstrap.user.isGuest ? (
+              <button
+                className="export-action"
+                onClick={() => {
+                  setAuthMode("signup");
+                  setAuthDraft({ email: "", password: "", nickname: "" });
+                  setShowGuestAuth(true);
+                }}
+                disabled={busyKey !== null}
+              >
+                Save to account
+              </button>
+            ) : null}
             <button onClick={() => void logout()} disabled={busyKey !== null}>Logout</button>
           </div>
         ) : null}
       </header>
 
-      {!bootstrap.user ? (
+      {showAuthPanel ? (
         <section key={authMode} className="auth-panel">
           <h2>{authMode === "login" ? "Login" : "Sign up"}</h2>
+          {bootstrap.user?.isGuest ? (
+            <p className="meta">게스트 데이터를 계정에 저장하려면 로그인하거나 회원가입하세요.</p>
+          ) : null}
           <input
             key={`email-${authMode}`}
             type="email"
@@ -787,6 +807,16 @@ export function AppShell({ initialData }: Props) {
             value={authDraft.email}
             onChange={(event) => setAuthDraft({ ...authDraft, email: event.target.value })}
           />
+          {authMode === "signup" ? (
+            <input
+              key={`nickname-${authMode}`}
+              type="text"
+              placeholder="nickname (optional)"
+              autoComplete="nickname"
+              value={authDraft.nickname}
+              onChange={(event) => setAuthDraft({ ...authDraft, nickname: event.target.value })}
+            />
+          ) : null}
           <input
             key={`password-${authMode}`}
             type="password"
@@ -803,6 +833,15 @@ export function AppShell({ initialData }: Props) {
               {authMode === "login" ? "Need account?" : "Have account?"}
             </button>
           </div>
+          {bootstrap.user?.isGuest ? (
+            <button className="guest-try-button" onClick={() => setShowGuestAuth(false)}>
+              게스트 화면으로 돌아가기
+            </button>
+          ) : authMode === "login" ? (
+            <button className="guest-try-button" onClick={() => window.location.assign("/try")}>
+              로그인 없이 체험하기
+            </button>
+          ) : null}
         </section>
       ) : (
         <>
@@ -1160,6 +1199,11 @@ export function AppShell({ initialData }: Props) {
 
               {activeTab === "settings" ? (
                 <div className="settings-panel">
+                  <div className="settings-account-card">
+                    <span className="eyebrow">Account</span>
+                    <strong>{bootstrap.settings.nickname || "No nickname"}</strong>
+                    <span className="meta">{bootstrap.user?.email ?? "Signed out"}</span>
+                  </div>
                   <label>
                     Nickname
                     <input
@@ -1199,6 +1243,11 @@ export function AppShell({ initialData }: Props) {
                     <button onClick={() => window.open("/help", "_blank", "noopener,noreferrer")}>
                       User Guide
                     </button>
+                    {!bootstrap.user?.isGuest ? (
+                      <button className="danger-link" onClick={() => window.location.assign("/account/delete")}>
+                        Delete Account
+                      </button>
+                    ) : null}
                   </div>
                   <section className="archive-list">
                     <h2>Archived items</h2>
