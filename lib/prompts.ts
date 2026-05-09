@@ -33,7 +33,8 @@ selected item이 언급되면 반드시 활용합니다.
 priority는 1이 가장 중요하고 5가 가장 낮습니다.
 horizon은 now, soon, later, long_term 중 하나입니다.
 title은 UI 카드에서 바로 읽히는 짧은 명령형 문장으로 씁니다.
-content에는 현재상황/현재상태를 고려해 이 실행단위가 나온 이유를 한 문장으로 보존합니다.
+content는 title을 반복하지 말고, 현재상황/현재상태를 고려해 이 실행단위가 필요한 이유와 첫 행동 힌트를 1~2문장으로 씁니다.
+content는 반드시 비어있지 않아야 하며 title과 같은 문장을 쓰면 안 됩니다.
 출력은 반드시 JSON object만 사용합니다.
 {
   "currentSituation": string,

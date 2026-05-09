@@ -476,6 +476,33 @@ function normalizeStringArray(value: unknown) {
     : [];
 }
 
+function normalizedText(value: string) {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function buildDistinctContent(params: {
+  title: string;
+  content: string;
+  fallbackText: string;
+  context?: { currentSituation: string; currentState: string };
+}) {
+  const content = params.content.trim();
+  if (content && normalizedText(content) !== normalizedText(params.title)) {
+    return content;
+  }
+
+  const contextParts = [
+    params.context?.currentSituation ? `상황: ${params.context.currentSituation}` : "",
+    params.context?.currentState ? `상태: ${params.context.currentState}` : "",
+  ].filter(Boolean);
+  const fallback =
+    params.fallbackText.trim() && normalizedText(params.fallbackText) !== normalizedText(params.title)
+      ? params.fallbackText.trim()
+      : "입력한 내용을 바로 실행 가능한 단위로 옮긴 항목입니다.";
+
+  return [...contextParts, `메모: ${fallback}`].join(" / ");
+}
+
 function personalPromptBlock(settings: UserSettingsRecord) {
   const prompt = settings.customPrompt.trim();
   return prompt ? `[PERSONAL PROMPT]\n${prompt}` : "[PERSONAL PROMPT]\n(none)";
@@ -499,18 +526,21 @@ function normalizeBrainDumpDraft(
   const itemType = isItemType(entry.itemType) ? entry.itemType : "task";
   const horizon = isItemHorizon(entry.horizon) ? entry.horizon : "now";
 
-  const content =
-    typeof entry.content === "string" && entry.content.trim()
-      ? entry.content.trim()
-      : fallbackText;
+  const rawContent = typeof entry.content === "string" ? entry.content : "";
   const contextPrefix = [
     context?.currentSituation ? `상황: ${context.currentSituation}` : "",
     context?.currentState ? `상태: ${context.currentState}` : "",
   ].filter(Boolean).join(" / ");
+  const content = buildDistinctContent({
+    title,
+    content: rawContent,
+    fallbackText,
+    context,
+  });
 
   return {
     title: title.slice(0, 120),
-    content: contextPrefix ? `${contextPrefix} / ${content}` : content,
+    content: contextPrefix && !content.startsWith("상황:") ? `${contextPrefix} / ${content}` : content,
     itemType,
     horizon,
     priority: normalizePriority(entry.priority),
@@ -528,9 +558,14 @@ function splitBrainDumpFallback(text: string): BrainDumpItemDraft[] {
 
   return chunks.slice(0, 12).map((chunk) => {
     const classification = classifyTextFallback(chunk);
+    const title = chunk.slice(0, 80);
     return {
-      title: chunk.slice(0, 80),
-      content: chunk,
+      title,
+      content: buildDistinctContent({
+        title,
+        content: "",
+        fallbackText: chunk,
+      }),
       itemType: classification.itemType,
       horizon: classification.horizon,
       priority: classification.priority,
