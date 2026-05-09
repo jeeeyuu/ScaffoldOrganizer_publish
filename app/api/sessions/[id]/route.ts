@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getCurrentUser } from "@/lib/auth";
 import { getSessionById } from "@/lib/repository";
 
 export async function GET(
@@ -8,7 +9,7 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
-    const session = await getSessionById(id);
+    const session = await getSessionById(await getCurrentUser(), id);
     return NextResponse.json(session);
   } catch (error) {
     return NextResponse.json(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getCurrentUser } from "@/lib/auth";
 import { createItem, deleteItem, listItems, updateItem } from "@/lib/repository";
 
 const createSchema = z.object({
@@ -24,7 +25,7 @@ const deleteSchema = z.object({
 
 export async function GET() {
   try {
-    const items = await listItems();
+    const items = await listItems(await getCurrentUser());
     return NextResponse.json(items);
   } catch (error) {
     return NextResponse.json(
@@ -37,7 +38,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = createSchema.parse(await request.json());
-    const item = await createItem(body);
+    const item = await createItem(await getCurrentUser(), body);
     return NextResponse.json(item);
   } catch (error) {
     return NextResponse.json(
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = updateSchema.parse(await request.json());
-    const item = await updateItem(body.id, body);
+    const item = await updateItem(await getCurrentUser(), body.id, body);
     return NextResponse.json(item);
   } catch (error) {
     return NextResponse.json(
@@ -63,7 +64,7 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const body = deleteSchema.parse(await request.json());
-    await deleteItem(body.id);
+    await deleteItem(await getCurrentUser(), body.id);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

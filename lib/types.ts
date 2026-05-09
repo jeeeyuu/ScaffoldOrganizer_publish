@@ -1,8 +1,18 @@
 export type ItemType = "task" | "thought" | "journal_seed" | "note";
 export type ItemStatus = "inbox" | "todo" | "doing" | "done" | "archived";
 export type ItemHorizon = "now" | "soon" | "later" | "long_term";
-export type ItemSource = "telegram" | "chat_input" | "brain_dump" | "manual" | "system";
-export type AppTab = "inbox" | "active" | "longterm" | "sessions" | "worklogs" | "done";
+export type ItemSource = "chat_input" | "brain_dump" | "manual" | "system";
+export type AppTab =
+  | "inbox"
+  | "active"
+  | "longterm"
+  | "schedule"
+  | "calendar"
+  | "sessions"
+  | "worklogs"
+  | "settings"
+  | "admin"
+  | "done";
 
 export interface ItemRecord {
   id: string;
@@ -44,11 +54,38 @@ export interface WorklogRecord {
   updatedAt: string;
 }
 
+export interface ScheduleRecord {
+  id: string;
+  title: string;
+  notes: string;
+  scheduleDate: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserSettingsRecord {
+  nickname: string;
+  worklogExportPath: string;
+  customPrompt: string;
+}
+
+export interface AdminVariableRecord {
+  id: string;
+  key: string;
+  value: string;
+  description: string;
+  updatedAt: string;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  isAdmin: boolean;
+}
+
 export interface StatusSnapshot {
   backend: "Active" | "Starting" | "Dead" | "Error";
-  telegram: "Active" | "Idle" | "Disabled" | "Error";
   ai: "Ready" | "Busy" | "Error" | "Local fallback";
-  telegramError?: string;
   aiError?: string;
 }
 
@@ -59,10 +96,14 @@ export interface PromptDefinition {
 }
 
 export interface BootstrapPayload {
+  user: AuthUser | null;
   status: StatusSnapshot;
   items: ItemRecord[];
   sessions: SessionRecord[];
   worklogs: WorklogRecord[];
+  schedules: ScheduleRecord[];
+  settings: UserSettingsRecord;
+  adminVariables: AdminVariableRecord[];
   prompts: PromptDefinition[];
   usingSupabase: boolean;
 }
@@ -73,6 +114,7 @@ export interface RouterAction {
     | "move_selected_item_to_long_term"
     | "mark_selected_item_doing"
     | "mark_selected_item_done"
+    | "create_schedule"
     | "generate_worklog"
     | "save_session"
     | "no_op";

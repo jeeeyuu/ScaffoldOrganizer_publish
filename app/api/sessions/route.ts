@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getCurrentUser } from "@/lib/auth";
 import { listSessions, saveSession } from "@/lib/repository";
 
 const saveSessionSchema = z.object({
@@ -11,7 +12,7 @@ const saveSessionSchema = z.object({
 
 export async function GET() {
   try {
-    const sessions = await listSessions();
+    const sessions = await listSessions(await getCurrentUser());
     return NextResponse.json(sessions);
   } catch (error) {
     return NextResponse.json(
@@ -24,7 +25,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = saveSessionSchema.parse(await request.json());
-    const session = await saveSession(body);
+    const session = await saveSession(await getCurrentUser(), body);
     return NextResponse.json(session);
   } catch (error) {
     return NextResponse.json(

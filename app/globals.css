@@ -1,13 +1,15 @@
 :root {
-  --ink: #1e2528;
-  --muted: #667277;
-  --paper: #f7f4ed;
-  --panel: #fffdf8;
-  --line: #d9d1c3;
-  --green: #26835b;
-  --red: #be3f3f;
-  --amber: #b97118;
-  --blue: #2f6fa6;
+  --ink: #25272c;
+  --muted: #717783;
+  --paper: #f7fbff;
+  --panel: #ffffff;
+  --line: #d8e1eb;
+  --green: #20a675;
+  --red: #ff5a73;
+  --amber: #ffb23f;
+  --blue: #63c7ff;
+  --blue-deep: #1d8fca;
+  --shadow: rgba(37, 39, 44, 0.11);
 }
 
 * {
@@ -26,9 +28,11 @@ body {
 body {
   color: var(--ink);
   background:
-    linear-gradient(135deg, rgba(38, 131, 91, 0.11), transparent 35%),
-    linear-gradient(225deg, rgba(47, 111, 166, 0.12), transparent 38%),
+    radial-gradient(circle at 12px 12px, rgba(99, 199, 255, 0.35) 0 4px, transparent 5px),
+    linear-gradient(135deg, rgba(99, 199, 255, 0.18), transparent 38%),
+    linear-gradient(225deg, rgba(255, 178, 63, 0.12), transparent 36%),
     var(--paper);
+  background-size: 34px 34px, auto, auto, auto;
   font-family:
     "Noto Sans KR", "Noto Sans CJK KR", "Noto Sans",
     "Malgun Gothic", "Apple SD Gothic Neo",
@@ -45,21 +49,24 @@ textarea {
 }
 
 button {
-  border: 1px solid var(--line);
+  border: 2px solid var(--ink);
   background: var(--panel);
   color: var(--ink);
   min-height: 30px;
-  border-radius: 6px;
+  border-radius: 14px;
   padding: 0 10px;
   cursor: pointer;
-  transition: border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+  box-shadow: 3px 3px 0 var(--blue);
+  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
   white-space: nowrap;
+  font-weight: 800;
 }
 
 button:hover:not(:disabled),
 button.active {
-  border-color: var(--blue);
-  color: var(--blue);
+  color: var(--blue-deep);
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--amber);
 }
 
 button:disabled {
@@ -80,7 +87,7 @@ button:disabled {
   justify-content: space-between;
   align-items: flex-start;
   gap: 8px;
-  padding: 10px 12px 6px;
+  padding: 14px 14px 8px;
 }
 
 .topbar > div:first-child {
@@ -91,9 +98,10 @@ button:disabled {
 h1 {
   margin: 0;
   font-size: 18px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
+  font-weight: 900;
+  letter-spacing: 0;
   line-height: 1.15;
+  text-transform: uppercase;
 }
 
 .feedback {
@@ -129,12 +137,13 @@ h1 {
 }
 
 .dot {
-  border: 1px solid var(--line);
+  border: 2px solid var(--ink);
   border-radius: 999px;
   padding: 3px 7px;
   background: var(--panel);
   font-size: 11px;
   white-space: nowrap;
+  box-shadow: 2px 2px 0 var(--blue);
 }
 
 .dot.active { color: var(--green); }
@@ -159,10 +168,11 @@ h1 {
 }
 
 .panel {
-  border: 1px solid var(--line);
-  background: rgba(255, 253, 248, 0.82);
-  border-radius: 8px;
-  padding: 10px;
+  border: 2px solid var(--ink);
+  background: rgba(255, 255, 255, 0.93);
+  border-radius: 18px;
+  padding: 12px;
+  box-shadow: 6px 6px 0 var(--shadow);
   overflow: visible;
 }
 
@@ -195,12 +205,13 @@ h1 {
 }
 
 .item-card {
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--muted);
+  border: 2px solid var(--ink);
+  border-left: 8px solid var(--muted);
   background: var(--panel);
-  border-radius: 6px;
-  padding: 6px 8px;
+  border-radius: 18px;
+  padding: 8px 10px;
   min-width: 0;
+  box-shadow: 4px 4px 0 var(--line);
 }
 
 .item-card.status-inbox { border-left-color: var(--amber); }
@@ -230,18 +241,19 @@ h1 {
   align-items: center;
   gap: 3px;
   padding: 1px 7px;
-  border-radius: 10px;
+  border-radius: 999px;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  background: var(--green);
+  background: var(--blue);
   color: #fff;
+  border: 2px solid var(--ink);
 }
 
 .priority-chip {
   display: inline-block;
   padding: 1px 7px;
-  border-radius: 10px;
+  border-radius: 999px;
   font-weight: 700;
   font-size: 10px;
   color: #fff;
@@ -288,8 +300,8 @@ textarea,
 input {
   width: 100%;
   max-width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
   background: var(--panel);
   color: var(--ink);
   padding: 6px 8px;
@@ -375,22 +387,23 @@ textarea {
 }
 
 .list-entry {
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border: 2px solid var(--ink);
+  border-radius: 16px;
   background: var(--panel);
   padding: 8px;
   font-size: 12px;
+  box-shadow: 3px 3px 0 var(--blue);
 }
 
 .command-bar {
   position: sticky;
   bottom: 0;
-  border-top: 1px solid var(--line);
+  border-top: 2px solid var(--ink);
   padding: 8px 12px;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
-  background: rgba(247, 244, 237, 0.96);
+  background: rgba(247, 251, 255, 0.96);
   backdrop-filter: blur(6px);
   margin-top: auto;
 }
@@ -415,8 +428,8 @@ textarea {
   width: min(90vw, 520px);
   max-height: 80vh;
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  border: 2px solid var(--ink);
+  border-radius: 18px;
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -449,3 +462,77 @@ textarea {
   color: var(--muted);
   font-size: 11px;
 }
+
+.auth-panel,
+.settings-panel,
+.schedule-form {
+  margin: 0 12px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 18px;
+  background: var(--panel);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 6px 6px 0 var(--blue);
+}
+
+.auth-panel h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.settings-panel {
+  margin: 0;
+}
+
+.settings-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 800;
+}
+
+.schedule-entry p,
+.calendar-day p,
+.list-entry p {
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.calendar-day {
+  min-height: 120px;
+  border: 2px solid var(--ink);
+  border-radius: 18px;
+  background: #fff;
+  padding: 10px;
+  box-shadow: 4px 4px 0 var(--amber);
+}
+
+.calendar-day h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.mini-chip {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 5px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.mini-chip.sky { background: var(--blue); }
+.mini-chip.gray { background: #e5e7eb; }
+.mini-chip.mint { background: #8df2cf; }

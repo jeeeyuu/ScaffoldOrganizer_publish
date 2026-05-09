@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getCurrentUser } from "@/lib/auth";
 import { structureSession } from "@/lib/repository";
 
 const structureSchema = z.object({
@@ -11,7 +12,7 @@ const structureSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     const body = structureSchema.parse(await request.json());
-    const result = await structureSession(body);
+    const result = await structureSession(await getCurrentUser(), body);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

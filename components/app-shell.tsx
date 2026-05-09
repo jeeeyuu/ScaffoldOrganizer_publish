@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from "react";
 
 import type {
   AppTab,
+  AdminVariableRecord,
   BootstrapPayload,
   ItemRecord,
+  ScheduleRecord,
   SessionRecord,
+  UserSettingsRecord,
   WorklogRecord,
 } from "@/lib/types";
 
@@ -14,8 +17,12 @@ const TABS: Array<{ id: AppTab; label: string }> = [
   { id: "inbox", label: "Inbox" },
   { id: "active", label: "Active" },
   { id: "longterm", label: "Long-term" },
+  { id: "schedule", label: "Schedule" },
+  { id: "calendar", label: "Calendar" },
   { id: "sessions", label: "Sessions" },
   { id: "worklogs", label: "Work Log" },
+  { id: "settings", label: "Settings" },
+  { id: "admin", label: "Admin" },
   { id: "done", label: "Done" },
 ];
 
@@ -47,6 +54,21 @@ interface WorklogDraftState {
   contextSummary: Record<string, unknown>;
   savedId: string | null;
   statusText: string;
+}
+
+interface AuthDraft {
+  email: string;
+  password: string;
+}
+
+interface ScheduleDraft {
+  title: string;
+  notes: string;
+  scheduleDate: string;
+}
+
+function todayInputDate() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function downloadText(filename: string, text: string) {
@@ -104,6 +126,29 @@ function filterItems(items: ItemRecord[], activeTab: AppTab, query: string) {
   );
 }
 
+function calendarDays(items: ItemRecord[], schedules: ScheduleRecord[], worklogs: WorklogRecord[]) {
+  const map = new Map<string, { date: string; items: ItemRecord[]; schedules: ScheduleRecord[]; worklogs: WorklogRecord[] }>();
+  const ensure = (date: string) => {
+    const key = date.slice(0, 10);
+    if (!map.has(key)) {
+      map.set(key, { date: key, items: [], schedules: [], worklogs: [] });
+    }
+    return map.get(key)!;
+  };
+
+  for (const item of items) {
+    ensure(item.scheduledDate || item.dueDate || item.createdAt).items.push(item);
+  }
+  for (const schedule of schedules) {
+    ensure(schedule.scheduleDate).schedules.push(schedule);
+  }
+  for (const worklog of worklogs) {
+    ensure(worklog.logDate).worklogs.push(worklog);
+  }
+
+  return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function priorityLabel(priority: number) {
   return PRIORITY_LABELS[priority] ?? `P${priority}`;
 }
@@ -141,6 +186,19 @@ export function AppShell({ initialData }: Props) {
   const [sessionTitle, setSessionTitle] = useState(initialData.sessions[0]?.title ?? "");
   const [commandInput, setCommandInput] = useState("");
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authDraft, setAuthDraft] = useState<AuthDraft>({ email: "", password: "" });
+  const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft>({
+    title: "",
+    notes: "",
+    scheduleDate: todayInputDate(),
+  });
+  const [settingsDraft, setSettingsDraft] = useState<UserSettingsRecord>(initialData.settings);
+  const [adminDraft, setAdminDraft] = useState<Partial<AdminVariableRecord>>({
+    key: "",
+    value: "",
+    description: "",
+  });
   const [worklogDraft, setWorklogDraft] = useState<WorklogDraftState>({
     logDate: initialData.worklogs[0]?.logDate ?? null,
     title: initialData.worklogs[0]?.title ?? null,
@@ -213,7 +271,12 @@ export function AppShell({ initialData }: Props) {
     };
   }, []);
 
+  useEffect(() => {
+    setSettingsDraft(bootstrap.settings);
+  }, [bootstrap.settings]);
+
   const visibleItems = filterItems(bootstrap.items, activeTab, filter);
+  const calendarEntries = calendarDays(bootstrap.items, bootstrap.schedules, bootstrap.worklogs);
 
   function toggleSelection(itemId: string) {
     setSelectedIds((current) =>
@@ -446,8 +509,119 @@ export function AppShell({ initialData }: Props) {
     });
   }
 
+  async function submitAuth() {
+    await runBusy("auth", async () => {
+      const response = await fetch(`/api/auth/${authMode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(authDraft),
+      });
+
+      if (!response.ok) {
+        throw new Error("Authentication failed");
+      }
+
+      const result = (await response.json()) as { needsConfirmation?: boolean };
+      await refreshBootstrap();
+      setFeedback(
+        result.needsConfirmation
+          ? "Account created. Check your email to confirm login."
+          : authMode === "login"
+            ? "Logged in"
+            : "Account created",
+        "success",
+      );
+    }).catch((error: unknown) => {
+      setFeedback(error instanceof Error ? error.message : "Authentication failed", "error");
+    });
+  }
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    await refreshBootstrap();
+    setFeedback("Logged out", "success");
+  }
+
+  async function createScheduleEntry() {
+    await runBusy("createSchedule", async () => {
+      const response = await fetch("/api/schedules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(scheduleDraft),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create schedule");
+      }
+
+      setScheduleDraft({ title: "", notes: "", scheduleDate: todayInputDate() });
+      await refreshBootstrap();
+      setFeedback("Schedule added", "success");
+    }).catch((error: unknown) => {
+      setFeedback(error instanceof Error ? error.message : "Failed to create schedule", "error");
+    });
+  }
+
+  async function removeSchedule(id: string) {
+    await runBusy(`schedule-${id}`, async () => {
+      const response = await fetch("/api/schedules", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete schedule");
+      }
+
+      await refreshBootstrap();
+      setFeedback("Schedule deleted", "success");
+    }).catch((error: unknown) => {
+      setFeedback(error instanceof Error ? error.message : "Failed to delete schedule", "error");
+    });
+  }
+
+  async function saveSettings() {
+    await runBusy("settings", async () => {
+      const response = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settingsDraft),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save settings");
+      }
+
+      await refreshBootstrap();
+      setFeedback("Settings saved", "success");
+    }).catch((error: unknown) => {
+      setFeedback(error instanceof Error ? error.message : "Failed to save settings", "error");
+    });
+  }
+
+  async function saveAdminVariable() {
+    await runBusy("admin", async () => {
+      const response = await fetch("/api/admin/variables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(adminDraft),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save variable");
+      }
+
+      setAdminDraft({ key: "", value: "", description: "" });
+      await refreshBootstrap();
+      setFeedback("Variable saved", "success");
+    }).catch((error: unknown) => {
+      setFeedback(error instanceof Error ? error.message : "Failed to save variable", "error");
+    });
+  }
+
   const filteredOutCount =
-    activeTab === "sessions" || activeTab === "worklogs"
+    activeTab === "sessions" || activeTab === "worklogs" || activeTab === "schedule" || activeTab === "calendar" || activeTab === "settings" || activeTab === "admin"
       ? 0
       : filterItems(bootstrap.items, activeTab, "").length - visibleItems.length;
 
@@ -458,15 +632,43 @@ export function AppShell({ initialData }: Props) {
           <h1>ScaffoldOrganizer 2.0</h1>
           <p className="feedback" data-level={feedbackLevel}>{feedback}</p>
           <p className="meta">
-            {bootstrap.usingSupabase ? "Supabase connected" : "Demo store fallback"}
+            {bootstrap.user ? `${bootstrap.settings.nickname || bootstrap.user.email}` : "Signed out"} · {bootstrap.usingSupabase ? "Supabase" : "Demo"}
           </p>
         </div>
         <div className="status-strip">
           <FeedbackBadge label="Backend" value={bootstrap.status.backend} />
-          <FeedbackBadge label="Telegram" value={bootstrap.status.telegram} />
           <FeedbackBadge label="AI" value={bootstrap.status.ai} />
+          {bootstrap.user ? (
+            <button onClick={() => void logout()} disabled={busyKey !== null}>Logout</button>
+          ) : null}
         </div>
       </header>
+
+      {!bootstrap.user ? (
+        <section className="auth-panel">
+          <h2>{authMode === "login" ? "Login" : "Sign up"}</h2>
+          <input
+            type="email"
+            placeholder="email"
+            value={authDraft.email}
+            onChange={(event) => setAuthDraft({ ...authDraft, email: event.target.value })}
+          />
+          <input
+            type="password"
+            placeholder="password"
+            value={authDraft.password}
+            onChange={(event) => setAuthDraft({ ...authDraft, password: event.target.value })}
+          />
+          <div className="card-actions">
+            <button onClick={() => void submitAuth()} disabled={busyKey !== null}>
+              {authMode === "login" ? "Login" : "Create account"}
+            </button>
+            <button onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}>
+              {authMode === "login" ? "Need account?" : "Have account?"}
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="toolbar">
         <button onClick={() => void saveSessionEditor()} disabled={busyKey !== null}>
@@ -537,7 +739,7 @@ export function AppShell({ initialData }: Props) {
         </nav>
 
         <section className="panel">
-          {activeTab !== "sessions" && activeTab !== "worklogs" ? (
+          {activeTab !== "sessions" && activeTab !== "worklogs" && activeTab !== "schedule" && activeTab !== "calendar" && activeTab !== "settings" && activeTab !== "admin" ? (
             <>
               <div className="panel-toolbar">
                 <input
@@ -670,6 +872,61 @@ export function AppShell({ initialData }: Props) {
             </>
           ) : null}
 
+          {activeTab === "schedule" ? (
+            <div className="split">
+              <div className="schedule-form">
+                <input
+                  placeholder="Schedule title"
+                  value={scheduleDraft.title}
+                  onChange={(event) => setScheduleDraft({ ...scheduleDraft, title: event.target.value })}
+                />
+                <input
+                  type="date"
+                  value={scheduleDraft.scheduleDate}
+                  onChange={(event) => setScheduleDraft({ ...scheduleDraft, scheduleDate: event.target.value })}
+                />
+                <textarea
+                  placeholder="Notes"
+                  value={scheduleDraft.notes}
+                  onChange={(event) => setScheduleDraft({ ...scheduleDraft, notes: event.target.value })}
+                />
+                <button onClick={() => void createScheduleEntry()} disabled={busyKey !== null || !scheduleDraft.title.trim()}>
+                  Add Schedule
+                </button>
+              </div>
+              <div className="list">
+                {bootstrap.schedules.map((schedule) => (
+                  <div key={schedule.id} className="list-entry schedule-entry">
+                    <strong>{schedule.scheduleDate} · {schedule.title}</strong>
+                    {schedule.notes ? <p>{schedule.notes}</p> : null}
+                    <div className="card-actions">
+                      <button className="danger" onClick={() => void removeSchedule(schedule.id)}>Delete</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {activeTab === "calendar" ? (
+            <div className="calendar-grid">
+              {calendarEntries.map((day) => (
+                <article key={day.date} className="calendar-day">
+                  <h3>{day.date}</h3>
+                  {day.schedules.map((schedule) => (
+                    <p key={schedule.id}><span className="mini-chip sky">S</span>{schedule.title}</p>
+                  ))}
+                  {day.items.map((item) => (
+                    <p key={item.id}><span className="mini-chip gray">T</span>{item.title}</p>
+                  ))}
+                  {day.worklogs.map((worklog) => (
+                    <p key={worklog.id}><span className="mini-chip mint">W</span>{worklog.title}</p>
+                  ))}
+                </article>
+              ))}
+            </div>
+          ) : null}
+
           {activeTab === "sessions" ? (
             <div className="split">
               <div className="editor-column">
@@ -776,6 +1033,71 @@ export function AppShell({ initialData }: Props) {
                 ))}
               </div>
             </div>
+          ) : null}
+
+          {activeTab === "settings" ? (
+            <div className="settings-panel">
+              <label>
+                Nickname
+                <input
+                  value={settingsDraft.nickname}
+                  onChange={(event) => setSettingsDraft({ ...settingsDraft, nickname: event.target.value })}
+                />
+              </label>
+              <label>
+                Worklog export path
+                <input
+                  value={settingsDraft.worklogExportPath}
+                  onChange={(event) => setSettingsDraft({ ...settingsDraft, worklogExportPath: event.target.value })}
+                />
+              </label>
+              <label>
+                Personal prompt
+                <textarea
+                  value={settingsDraft.customPrompt}
+                  onChange={(event) => setSettingsDraft({ ...settingsDraft, customPrompt: event.target.value })}
+                />
+              </label>
+              <button onClick={() => void saveSettings()} disabled={busyKey !== null}>Save Settings</button>
+            </div>
+          ) : null}
+
+          {activeTab === "admin" ? (
+            bootstrap.user?.isAdmin ? (
+              <div className="split">
+                <div className="settings-panel">
+                  <input
+                    placeholder="Variable key"
+                    value={adminDraft.key ?? ""}
+                    onChange={(event) => setAdminDraft({ ...adminDraft, key: event.target.value })}
+                  />
+                  <textarea
+                    placeholder="Value"
+                    value={adminDraft.value ?? ""}
+                    onChange={(event) => setAdminDraft({ ...adminDraft, value: event.target.value })}
+                  />
+                  <input
+                    placeholder="Description"
+                    value={adminDraft.description ?? ""}
+                    onChange={(event) => setAdminDraft({ ...adminDraft, description: event.target.value })}
+                  />
+                  <button onClick={() => void saveAdminVariable()} disabled={busyKey !== null || !adminDraft.key}>
+                    Save Variable
+                  </button>
+                </div>
+                <div className="list">
+                  {bootstrap.adminVariables.map((entry) => (
+                    <div key={entry.id} className="list-entry" onClick={() => setAdminDraft(entry)}>
+                      <strong>{entry.key}</strong>
+                      <div className="meta">{entry.description}</div>
+                      <p>{entry.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="meta">Admin access required.</p>
+            )
           ) : null}
 
           <p className="panel-footnote">

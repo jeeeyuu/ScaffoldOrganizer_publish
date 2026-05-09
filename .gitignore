@@ -15,5 +15,7 @@ supabase/.temp
 *.db-shm
 *.db-wal
 tmp
+*.tsbuildinfo
 making
-supabases
+supabase
+.env.api

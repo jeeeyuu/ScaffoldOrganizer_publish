@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 
+import { getCurrentUser } from "@/lib/auth";
 import { generateWorklogDraft } from "@/lib/repository";
 
 export async function POST() {
   try {
-    const draft = await generateWorklogDraft();
+    const draft = await generateWorklogDraft(await getCurrentUser());
     return NextResponse.json(draft);
   } catch (error) {
     return NextResponse.json(

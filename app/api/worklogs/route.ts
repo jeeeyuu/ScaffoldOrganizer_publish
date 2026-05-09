@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getCurrentUser } from "@/lib/auth";
 import { listWorklogs, saveWorklog } from "@/lib/repository";
 
 const saveWorklogSchema = z.object({
@@ -12,7 +13,7 @@ const saveWorklogSchema = z.object({
 
 export async function GET() {
   try {
-    const worklogs = await listWorklogs();
+    const worklogs = await listWorklogs(await getCurrentUser());
     return NextResponse.json(worklogs);
   } catch (error) {
     return NextResponse.json(
@@ -25,7 +26,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = saveWorklogSchema.parse(await request.json());
-    const worklog = await saveWorklog(body);
+    const worklog = await saveWorklog(await getCurrentUser(), body);
     return NextResponse.json(worklog);
   } catch (error) {
     return NextResponse.json(

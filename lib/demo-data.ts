@@ -1,7 +1,11 @@
 import type {
+  AdminVariableRecord,
+  AuthUser,
   ItemRecord,
+  ScheduleRecord,
   SessionRecord,
   StatusSnapshot,
+  UserSettingsRecord,
   WorklogRecord,
 } from "@/lib/types";
 
@@ -9,9 +13,30 @@ const now = "2026-05-08T09:00:00.000Z";
 
 export const demoStatus: StatusSnapshot = {
   backend: "Active",
-  telegram: "Idle",
   ai: "Local fallback",
 };
+
+export const demoUser: AuthUser = {
+  id: "demo-user",
+  email: "demo@local",
+  isAdmin: true,
+};
+
+export const demoSettings: UserSettingsRecord = {
+  nickname: "Demo user",
+  worklogExportPath: "",
+  customPrompt: "",
+};
+
+export const demoAdminVariables: AdminVariableRecord[] = [
+  {
+    id: "admin-var-1",
+    key: "default_timezone",
+    value: "Asia/Seoul",
+    description: "Default timezone used by the app.",
+    updatedAt: now,
+  },
+];
 
 export const demoItems: ItemRecord[] = [
   {
@@ -55,21 +80,21 @@ export const demoItems: ItemRecord[] = [
   {
     id: "item-3",
     itemType: "note",
-    title: "Telegram polling 구조를 Next route handler와 분리할지 검토",
-    content: "cron 또는 edge queue를 붙일지 결정 필요",
+    title: "Gemini command router 출력 검증",
+    content: "명령 라우팅 JSON이 앱 action 모델과 맞는지 확인 필요",
     status: "inbox",
     horizon: "soon",
     priority: 3,
-    source: "telegram",
-    project: "Platform",
-    tags: ["telegram"],
+    source: "manual",
+    project: "AI",
+    tags: ["gemini"],
     scheduledDate: null,
     dueDate: null,
     createdAt: now,
     updatedAt: now,
     completedAt: null,
     sessionId: null,
-    externalRef: "tg:1024",
+    externalRef: null,
   },
   {
     id: "item-4",
@@ -101,6 +126,17 @@ export const demoSessions: SessionRecord[] = [
     createdAt: now,
     updatedAt: now,
     exportMdPath: null,
+  },
+];
+
+export const demoSchedules: ScheduleRecord[] = [
+  {
+    id: "schedule-1",
+    title: "Supabase RLS 정책 검토",
+    notes: "회원별 데이터 분리를 확인합니다.",
+    scheduleDate: "2026-05-09",
+    createdAt: now,
+    updatedAt: now,
   },
 ];
 
