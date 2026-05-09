@@ -382,6 +382,14 @@ textarea {
   font-size: 10px;
 }
 
+.auth-help-button {
+  margin-top: 8px;
+  border-color: var(--line);
+  background: #f8fbff;
+  color: #3d86a7;
+  box-shadow: 2px 2px 0 #bdeeff;
+}
+
 .trash-btn {
   min-width: 24px;
   color: var(--red);
@@ -866,6 +874,17 @@ textarea {
 .help-doc li {
   font-size: 14px;
   line-height: 1.65;
+}
+
+.help-doc img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 14px 0 24px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #f8fbff;
+  box-shadow: 4px 4px 0 var(--blue);
 }
 
 .help-doc code {

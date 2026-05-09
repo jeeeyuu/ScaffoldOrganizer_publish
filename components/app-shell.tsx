@@ -847,6 +847,9 @@ export function AppShell({ initialData }: Props) {
                 {authMode === "login" ? "Need account?" : "Have account?"}
               </button>
             </div>
+            <button className="auth-help-button" onClick={() => window.location.assign("/help")}>
+              사용방법 보기
+            </button>
             {bootstrap.user?.isGuest ? (
               <button className="guest-try-button" onClick={() => setShowGuestAuth(false)}>
                 게스트 화면으로 돌아가기

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Scaffold Organizer login screen</title>
+  <desc id="desc">Illustrated login and sign up screen with app introduction and auth form.</desc>
+  <defs>
+    <pattern id="dots" width="34" height="34" patternUnits="userSpaceOnUse">
+      <circle cx="12" cy="12" r="4" fill="#63c7ff" opacity="0.24"/>
+    </pattern>
+    <filter id="soft">
+      <feDropShadow dx="3" dy="3" stdDeviation="0" flood-color="#bdeeff"/>
+      <feDropShadow dx="5" dy="5" stdDeviation="0" flood-color="#25272c" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="760" fill="#f7fbff"/>
+  <rect width="1200" height="760" fill="url(#dots)"/>
+  <path d="M0 0h1200v260H0z" fill="#e8f8ff" opacity="0.45"/>
+
+  <text x="42" y="54" font-family="Arial, sans-serif" font-size="20" font-weight="800" fill="#3d86a7">Scaffold Organizer</text>
+  <text x="42" y="76" font-family="Arial, sans-serif" font-size="12" fill="#8aa0ad">Ready</text>
+
+  <g transform="translate(74 142)">
+    <text x="0" y="0" font-family="Arial, sans-serif" font-size="12" font-weight="800" letter-spacing="2" fill="#2f9fd3">MESSY THOUGHTS TO CLEAR NEXT ACTIONS</text>
+    <text x="0" y="78" font-family="Arial, sans-serif" font-size="68" font-weight="760" letter-spacing="-3" fill="#2f343a" filter="url(#soft)">Scaffold Organizer</text>
+    <text x="0" y="134" font-family="Arial, sans-serif" font-size="27" font-weight="720" fill="#25272c">Type everything in your head, even when it is not organized.</text>
+    <text x="0" y="178" font-family="Arial, sans-serif" font-size="17" fill="#717783">Tasks, current situation, energy level, worries, and ideas can stay messy.</text>
+    <text x="0" y="209" font-family="Arial, sans-serif" font-size="17" fill="#717783">AI reads the context and turns it into small next actions you can review.</text>
+
+    <g transform="translate(0 250)" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#25272c">
+      <rect x="0" y="0" width="226" height="32" rx="16" fill="#ffffff" stroke="#d8e1eb"/>
+      <text x="15" y="21">Inbox-first task review</text>
+      <rect x="244" y="0" width="218" height="32" rx="16" fill="#ffffff" stroke="#d8e1eb"/>
+      <text x="259" y="21">Personal prompt aware</text>
+      <rect x="480" y="0" width="202" height="32" rx="16" fill="#ffffff" stroke="#d8e1eb"/>
+      <text x="495" y="21">Calendar and worklog</text>
+    </g>
+  </g>
+
+  <g transform="translate(832 168)">
+    <rect x="4" y="4" width="304" height="344" rx="22" fill="#63c7ff"/>
+    <rect width="304" height="344" rx="22" fill="#ffffff" stroke="#25272c"/>
+    <text x="24" y="42" font-family="Arial, sans-serif" font-size="19" font-weight="800" fill="#25272c">Login</text>
+    <rect x="24" y="72" width="256" height="42" rx="13" fill="#f8fbff" stroke="#d8e1eb"/>
+    <text x="40" y="98" font-family="Arial, sans-serif" font-size="13" fill="#8aa0ad">email</text>
+    <rect x="24" y="126" width="256" height="42" rx="13" fill="#f8fbff" stroke="#d8e1eb"/>
+    <text x="40" y="152" font-family="Arial, sans-serif" font-size="13" fill="#8aa0ad">password</text>
+    <rect x="24" y="188" width="82" height="28" rx="14" fill="#ffffff" stroke="#25272c"/>
+    <text x="48" y="207" font-family="Arial, sans-serif" font-size="12" font-weight="700" fill="#25272c">Login</text>
+    <rect x="116" y="188" width="118" height="28" rx="14" fill="#ffffff" stroke="#25272c"/>
+    <text x="137" y="207" font-family="Arial, sans-serif" font-size="12" font-weight="700" fill="#25272c">Need account?</text>
+    <rect x="24" y="232" width="256" height="38" rx="16" fill="#f8fbff" stroke="#d8e1eb"/>
+    <text x="104" y="256" font-family="Arial, sans-serif" font-size="13" font-weight="800" fill="#3d86a7">User Guide</text>
+    <rect x="24" y="286" width="256" height="44" rx="18" fill="#63c7ff" stroke="#1d8fca"/>
+    <text x="76" y="314" font-family="Arial, sans-serif" font-size="15" font-weight="800" fill="#25272c">Try without login</text>
+  </g>
+</svg>

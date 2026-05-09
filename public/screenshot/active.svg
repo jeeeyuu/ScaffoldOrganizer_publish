@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Scaffold Organizer active page</title>
+  <desc id="desc">Illustrated Active tab with doing-first task cards and priority chips.</desc>
+  <defs>
+    <pattern id="dots" width="34" height="34" patternUnits="userSpaceOnUse">
+      <circle cx="12" cy="12" r="4" fill="#63c7ff" opacity="0.22"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="760" fill="#f7fbff"/>
+  <rect width="1200" height="760" fill="url(#dots)"/>
+  <text x="26" y="42" font-family="Arial, sans-serif" font-size="20" font-weight="800" fill="#25272c">Scaffold Organizer</text>
+  <g transform="translate(798 20)" font-family="Arial, sans-serif" font-size="12" font-weight="700">
+    <rect x="0" y="0" width="88" height="30" rx="15" fill="#63c7ff" stroke="#25272c"/>
+    <text x="18" y="20" fill="#25272c">Download</text>
+    <rect x="100" y="0" width="82" height="30" rx="15" fill="#ffffff" stroke="#25272c"/>
+    <text x="119" y="20" fill="#25272c">Settings</text>
+    <rect x="194" y="0" width="72" height="30" rx="15" fill="#ffffff" stroke="#25272c"/>
+    <text x="215" y="20" fill="#25272c">Logout</text>
+  </g>
+
+  <g transform="translate(24 82)" font-family="Arial, sans-serif" font-size="13" font-weight="700">
+    <rect width="1152" height="44" rx="18" fill="#ffffff" stroke="#d8e1eb"/>
+    <rect x="92" y="8" width="78" height="28" rx="14" fill="#63c7ff" stroke="#25272c"/>
+    <text x="111" y="27" fill="#25272c">Active</text>
+    <text x="20" y="27" fill="#717783">Inbox</text>
+    <text x="194" y="27" fill="#717783">Long-term</text>
+    <text x="298" y="27" fill="#717783">Schedule</text>
+    <text x="398" y="27" fill="#717783">Calendar</text>
+    <text x="494" y="27" fill="#717783">Work Log</text>
+    <text x="602" y="27" fill="#717783">Done</text>
+  </g>
+
+  <g transform="translate(24 146)">
+    <rect width="1152" height="54" rx="18" fill="#ffffff" stroke="#d8e1eb"/>
+    <rect x="18" y="12" width="520" height="30" rx="14" fill="#f8fbff" stroke="#d8e1eb"/>
+    <text x="36" y="32" font-family="Arial, sans-serif" font-size="12" fill="#8aa0ad">Filter items by title, project, tag...</text>
+    <text x="1030" y="32" font-family="Arial, sans-serif" font-size="12" fill="#717783">8 items</text>
+  </g>
+
+  <g font-family="Arial, sans-serif">
+    <g transform="translate(24 226)">
+      <rect x="5" y="5" width="350" height="150" rx="20" fill="#63c7ff"/>
+      <rect width="350" height="150" rx="20" fill="#ffffff" stroke="#25272c"/>
+      <rect x="0" y="0" width="8" height="150" rx="4" fill="#ffb23f"/>
+      <rect x="24" y="24" width="13" height="13" rx="3" fill="#ffffff" stroke="#25272c"/>
+      <text x="50" y="37" font-size="17" font-weight="800" fill="#25272c">Prepare weekly review outline</text>
+      <rect x="226" y="20" width="58" height="22" rx="11" fill="#fff4d8" stroke="#ffb23f"/>
+      <text x="239" y="36" font-size="11" font-weight="800" fill="#8a5a00">DOING</text>
+      <rect x="294" y="20" width="34" height="22" rx="11" fill="#63c7ff" stroke="#1d8fca"/>
+      <text x="303" y="36" font-size="11" font-weight="800" fill="#25272c">P1</text>
+      <text x="24" y="72" font-size="13" fill="#717783">Split notes into three short review blocks.</text>
+      <g font-size="11" font-weight="700">
+        <rect x="24" y="104" width="52" height="24" rx="12" fill="#ffffff" stroke="#25272c"/>
+        <text x="36" y="120">Pause</text>
+        <rect x="84" y="104" width="84" height="24" rx="12" fill="#ffffff" stroke="#25272c"/>
+        <text x="96" y="120">Long-term</text>
+        <rect x="176" y="104" width="52" height="24" rx="12" fill="#ffffff" stroke="#25272c"/>
+        <text x="190" y="120">Done</text>
+      </g>
+    </g>
+
+    <g transform="translate(404 226)">
+      <rect x="5" y="5" width="350" height="150" rx="20" fill="#63c7ff"/>
+      <rect width="350" height="150" rx="20" fill="#ffffff" stroke="#25272c"/>
+      <rect x="24" y="24" width="13" height="13" rx="3" fill="#ffffff" stroke="#25272c"/>
+      <text x="50" y="37" font-size="17" font-weight="800" fill="#25272c">Clean up calendar backlog</text>
+      <rect x="294" y="20" width="34" height="22" rx="11" fill="#bdeeff" stroke="#1d8fca"/>
+      <text x="303" y="36" font-size="11" font-weight="800" fill="#25272c">P2</text>
+      <text x="24" y="72" font-size="13" fill="#717783">Remove duplicates and add missing dates.</text>
+      <g font-size="11" font-weight="700">
+        <rect x="24" y="104" width="58" height="24" rx="12" fill="#ffffff" stroke="#25272c"/>
+        <text x="36" y="120">Doing</text>
+        <rect x="90" y="104" width="84" height="24" rx="12" fill="#ffffff" stroke="#25272c"/>
+        <text x="102" y="120">Long-term</text>
+        <rect x="182" y="104" width="52" height="24" rx="12" fill="#ffffff" stroke="#25272c"/>
+        <text x="196" y="120">Done</text>
+      </g>
+    </g>
+
+    <g transform="translate(784 226)">
+      <rect x="5" y="5" width="350" height="150" rx="20" fill="#63c7ff"/>
+      <rect width="350" height="150" rx="20" fill="#ffffff" stroke="#25272c"/>
+      <rect x="24" y="24" width="13" height="13" rx="3" fill="#ffffff" stroke="#25272c"/>
+      <text x="50" y="37" font-size="17" font-weight="800" fill="#25272c">Draft next action list</text>
+      <rect x="294" y="20" width="34" height="22" rx="11" fill="#e8f8ff" stroke="#1d8fca"/>
+      <text x="303" y="36" font-size="11" font-weight="800" fill="#25272c">P3</text>
+      <text x="24" y="72" font-size="13" fill="#717783">Turn loose ideas into small tasks.</text>
+      <g font-size="11" font-weight="700">
+        <rect x="24" y="104" width="58" height="24" rx="12" fill="#ffffff" stroke="#25272c"/>
+        <text x="36" y="120">Doing</text>
+        <rect x="90" y="104" width="84" height="24" rx="12" fill="#ffffff" stroke="#25272c"/>
+        <text x="102" y="120">Long-term</text>
+      </g>
+    </g>
+
+    <g transform="translate(24 410)">
+      <rect x="5" y="5" width="350" height="130" rx="20" fill="#63c7ff"/>
+      <rect width="350" height="130" rx="20" fill="#ffffff" stroke="#25272c"/>
+      <text x="24" y="38" font-size="17" font-weight="800" fill="#25272c">Check storage status</text>
+      <text x="24" y="72" font-size="13" fill="#717783">Verify current data is synced.</text>
+    </g>
+    <g transform="translate(404 410)">
+      <rect x="5" y="5" width="350" height="130" rx="20" fill="#63c7ff"/>
+      <rect width="350" height="130" rx="20" fill="#ffffff" stroke="#25272c"/>
+      <text x="24" y="38" font-size="17" font-weight="800" fill="#25272c">Review archived items</text>
+      <text x="24" y="72" font-size="13" fill="#717783">Restore anything still useful.</text>
+    </g>
+  </g>
+</svg>

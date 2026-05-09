@@ -3,13 +3,31 @@ import path from "node:path";
 import Link from "next/link";
 
 function renderInline(text: string) {
-  const parts = text.split(/(`[^`]+`)/g);
+  const parts = text.split(/(`[^`]+`|\[[^\]]+\]\([^)]+\))/g);
   return parts.map((part, index) => {
     if (part.startsWith("`") && part.endsWith("`")) {
       return <code key={index}>{part.slice(1, -1)}</code>;
     }
+
+    const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (link) {
+      return (
+        <a key={index} href={link[2]}>
+          {link[1]}
+        </a>
+      );
+    }
+
     return part;
   });
+}
+
+function slugify(text: string) {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}\s-]/gu, "")
+    .replace(/\s+/g, "-");
 }
 
 function renderMarkdown(markdown: string) {
@@ -71,7 +89,26 @@ function renderMarkdown(markdown: string) {
 
     if (line.startsWith("## ")) {
       flushList();
-      nodes.push(<h2 key={`h2-${nodes.length}`}>{line.slice(3)}</h2>);
+      const title = line.slice(3);
+      nodes.push(
+        <h2 key={`h2-${nodes.length}`} id={slugify(title)}>
+          {title}
+        </h2>,
+      );
+      continue;
+    }
+
+    const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (image) {
+      flushList();
+      nodes.push(
+        <img
+          key={`img-${nodes.length}`}
+          src={image[2]}
+          alt={image[1]}
+          loading="lazy"
+        />,
+      );
       continue;
     }
 

@@ -138,6 +138,15 @@ npm run dev
 
 로그인/회원가입 화면의 짧은 소개 문구는 [content/auth-intro.json](./content/auth-intro.json)을 수정하면 됩니다.
 
+## Screenshot Assets
+
+사용방법 페이지와 설명 문서에 사용할 SVG mock screenshot은 `public/screenshot/`에 있습니다.
+
+- `public/screenshot/login.svg`
+- `public/screenshot/active.svg`
+- `public/screenshot/calendar.svg`
+- `public/screenshot/settings.svg`
+
 ## 현재 주의사항
 
 - 브라우저 보안 제약 때문에 특정 로컬 경로에 직접 저장하지 않고 다운로드 방식만 사용합니다.
