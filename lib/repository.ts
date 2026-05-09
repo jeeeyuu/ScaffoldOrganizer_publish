@@ -556,18 +556,16 @@ function normalizeRouterResult(raw: RawRouterResult | null): RouterResult | null
 
   const actions = raw.actions
     .filter((action): action is Record<string, unknown> => Boolean(action) && typeof action === "object")
-    .map((action) => {
+    .map((action): RouterAction | null => {
       if (!isRouterActionType(action.type)) {
         return null;
       }
 
-      return {
-        type: action.type,
-        payload:
-          action.payload && typeof action.payload === "object" && !Array.isArray(action.payload)
-            ? (action.payload as Record<string, unknown>)
-            : undefined,
-      };
+      const nextAction: RouterAction = { type: action.type };
+      if (action.payload && typeof action.payload === "object" && !Array.isArray(action.payload)) {
+        nextAction.payload = action.payload as Record<string, unknown>;
+      }
+      return nextAction;
     })
     .filter((action): action is RouterAction => Boolean(action));
 
