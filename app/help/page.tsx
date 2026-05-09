@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import Link from "next/link";
 
 function renderInline(text: string) {
   const parts = text.split(/(`[^`]+`)/g);
@@ -93,7 +94,7 @@ export default function HelpPage() {
   return (
     <main className="help-shell">
       <nav className="help-nav">
-        <a href="/">Back to App</a>
+        <Link href="/">Back to App</Link>
       </nav>
       <article className="help-doc">{renderMarkdown(markdown)}</article>
     </main>
