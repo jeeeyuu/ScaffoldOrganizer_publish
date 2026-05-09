@@ -9,10 +9,11 @@ export const PROMPT_REGISTRY: PromptDefinition[] = [
 여러 의도는 여러 action으로 분해합니다.
 selected item이 언급되면 반드시 활용합니다.
 장기 과제는 long_term, 진행 중은 doing, 업무일지는 generate_worklog로 라우팅합니다.
+정리되지 않은 할일/상황/컨디션 입력은 단일 create_item이 아니라 create_items로 라우팅하고 payload.text에 원문 전체를 유지합니다.
 출력은 반드시 다음 TypeScript 구조와 호환되는 JSON object만 사용합니다.
 {
   "mode": "command" | "content_capture" | "hybrid",
-  "actions": [{"type": "create_item" | "create_schedule" | "move_selected_item_to_long_term" | "mark_selected_item_doing" | "mark_selected_item_done" | "generate_worklog" | "no_op", "payload": {}}],
+  "actions": [{"type": "create_item" | "create_items" | "create_schedule" | "move_selected_item_to_long_term" | "mark_selected_item_doing" | "mark_selected_item_done" | "generate_worklog" | "no_op", "payload": {}}],
   "userFeedback": string
 }`,
   },
@@ -25,6 +26,7 @@ selected item이 언급되면 반드시 활용합니다.
 1. brain dump를 1차 해석해 "현재상황", "현재상태", "원래 언급된 할일 후보"로 분리합니다.
 2. 현재상황, 현재상태, PERSONAL PROMPT를 기준으로 할일 후보의 적절한 쪼개기 수준을 결정합니다.
 3. 큰 목표를 실행 가능한 next action으로 쪼갭니다. 예: "자료 검토"는 상황에 따라 "검토할 자료 목록 만들기", "우선순위 높은 자료부터 읽기", "핵심 결정사항 메모하기"처럼 분해합니다.
+   예: "DEG 코드 R로 바꿨던거 코드리뷰 제대로하고 어떤 통계적 방법 사용됐는지 하나씩 공부하기"는 "R로 변환한 DEG 코드 흐름 리뷰하기", "코드에서 사용된 통계 방법 목록 만들기", "통계 방법별 의미와 가정 공부하기"처럼 나눕니다.
 4. 너무 세세한 기계적 단계는 피합니다. 사용자가 지친 상태라면 첫 행동을 더 작게, 여유가 있거나 숙련된 상황이면 덜 쪼갭니다.
 5. 각 실행단위에 중요도 priority를 부여합니다.
 모호한 감정/생각은 실행 가능한 다음 행동으로 바꾸되, 사용자가 말하지 않은 큰 목표를 임의로 만들지 않습니다.

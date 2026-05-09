@@ -480,6 +480,25 @@ function normalizedText(value: string) {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function inferActionContent(title: string) {
+  if (/코드\s*리뷰|코드리뷰|review/i.test(title)) {
+    return "변환한 코드가 의도한 분석 흐름을 유지하는지 확인하고, 입력/출력과 주요 함수 호출부터 순서대로 점검합니다.";
+  }
+  if (/통계|stat/i.test(title)) {
+    return "사용된 방법의 목적, 기본 가정, 결과 해석 방식을 하나씩 확인해 나중에 설명할 수 있게 정리합니다.";
+  }
+  if (/공부|학습|읽기|study/i.test(title)) {
+    return "범위를 작게 나눠 첫 자료부터 확인하고, 이해한 내용과 추가 질문을 짧게 메모합니다.";
+  }
+  if (/목록|list/i.test(title)) {
+    return "흩어진 내용을 빠르게 훑어 빠진 항목 없이 체크리스트로 정리합니다.";
+  }
+  if (/확인|점검|검토|review/i.test(title)) {
+    return "먼저 현재 상태를 확인한 뒤 이상한 부분과 다음에 처리할 부분을 분리합니다.";
+  }
+  return "왜 필요한 작업인지와 첫 행동을 짧게 메모해 바로 시작할 수 있게 만든 항목입니다.";
+}
+
 function buildDistinctContent(params: {
   title: string;
   content: string;
@@ -498,9 +517,47 @@ function buildDistinctContent(params: {
   const fallback =
     params.fallbackText.trim() && normalizedText(params.fallbackText) !== normalizedText(params.title)
       ? params.fallbackText.trim()
-      : "입력한 내용을 바로 실행 가능한 단위로 옮긴 항목입니다.";
+      : inferActionContent(params.title);
 
   return [...contextParts, `메모: ${fallback}`].join(" / ");
+}
+
+function normalizeFallbackTitle(text: string) {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/했던거/g, "한 내용")
+    .replace(/제대로\s*/g, "")
+    .trim()
+    .slice(0, 80);
+}
+
+function expandCompoundKoreanTask(text: string) {
+  const trimmed = text.trim();
+  const tasks: string[] = [];
+
+  const codeReviewMatch = trimmed.match(/(.{0,40}코드.{0,30}?)(?:코드\s*리뷰|코드리뷰)/i);
+  if (codeReviewMatch) {
+    const subject = normalizeFallbackTitle(codeReviewMatch[1]);
+    tasks.push(`${subject || "코드"} 코드 리뷰하기`);
+  }
+
+  if (/통계/.test(trimmed) && /사용/.test(trimmed)) {
+    tasks.push("코드에서 사용된 통계 방법 목록 만들기");
+  }
+
+  if (/통계/.test(trimmed) && /공부|학습|읽기/.test(trimmed)) {
+    tasks.push("통계 방법별 의미와 가정 하나씩 공부하기");
+  }
+
+  if (tasks.length >= 2) {
+    return tasks;
+  }
+
+  return trimmed
+    .split(/\n|[;；]|그리고|그다음|다음으로|한 다음|하고 나서|,\s*/)
+    .flatMap((part) => part.split(/(?<=\S)하고\s+(?=\S)/))
+    .map((part) => normalizeFallbackTitle(part))
+    .filter((part) => part.length >= 3);
 }
 
 function personalPromptBlock(settings: UserSettingsRecord) {
@@ -554,11 +611,12 @@ function splitBrainDumpFallback(text: string): BrainDumpItemDraft[] {
     .split(/\n|[;；]|(?<=[.!?。！？])\s+/)
     .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
     .filter(Boolean);
-  const chunks = lines.length > 1 ? lines : [text.trim()];
+  const chunks = lines.length > 1 ? lines : expandCompoundKoreanTask(text);
+  const uniqueChunks = Array.from(new Set(chunks.length ? chunks : [text.trim()]));
 
-  return chunks.slice(0, 12).map((chunk) => {
+  return uniqueChunks.slice(0, 12).map((chunk) => {
     const classification = classifyTextFallback(chunk);
-    const title = chunk.slice(0, 80);
+    const title = normalizeFallbackTitle(chunk);
     return {
       title,
       content: buildDistinctContent({
@@ -619,7 +677,11 @@ async function processBrainDumpWithGemini(
       : [];
 
     return items.length ? items : null;
-  } catch (_error) {
+  } catch (error) {
+    console.warn(
+      "[brain_dump_processor] Falling back to local splitter:",
+      error instanceof Error ? error.message : error,
+    );
     return null;
   }
 }
@@ -743,7 +805,11 @@ async function routeCommandWithGemini(
     });
 
     return normalizeRouterResult(response);
-  } catch (_error) {
+  } catch (error) {
+    console.warn(
+      "[command_router] Falling back to local command parser:",
+      error instanceof Error ? error.message : error,
+    );
     return null;
   }
 }
