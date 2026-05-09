@@ -5,7 +5,7 @@ export default function TryPage() {
     <main className="guest-start-shell">
       <section className="guest-start-card">
         <p className="eyebrow">Guest mode</p>
-        <h1>로그인 없이 ScaffoldOrganizer를 체험합니다.</h1>
+        <h1>로그인 없이 Scaffold Organizer를 체험합니다.</h1>
         <p>
           이 기능은 <strong>36시간만 지속</strong>됩니다. 36시간 이내 회원가입을 하지 않을 경우
           게스트로 만든 모든 데이터는 삭제될 수 있습니다.

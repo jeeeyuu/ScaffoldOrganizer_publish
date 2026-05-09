@@ -51,7 +51,7 @@ export const demoItems: ItemRecord[] = [
     horizon: "now",
     priority: 1,
     source: "manual",
-    project: "ScaffoldOrganizer",
+    project: "Scaffold Organizer",
     tags: ["schema", "mapping"],
     scheduledDate: null,
     dueDate: null,

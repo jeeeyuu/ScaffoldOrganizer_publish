@@ -8,7 +8,7 @@ export default function AuthConfirmedPage() {
         <h1>이메일 인증이 완료되었습니다.</h1>
         <p>현재 페이지는 닫아도 괜찮습니다.</p>
         <p className="meta">앱을 계속 사용하려면 로그인 화면으로 돌아가 다시 로그인해주세요.</p>
-        <Link href="/">Back to ScaffoldOrganizer</Link>
+        <Link href="/">Back to Scaffold Organizer</Link>
       </section>
     </main>
   );

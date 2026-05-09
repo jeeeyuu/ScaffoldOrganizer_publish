@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import authIntro from "@/content/auth-intro.json";
 import type {
   AppTab,
   AdminVariableRecord,
@@ -115,7 +116,7 @@ function downloadText(filename: string, text: string) {
 
 function buildExportMarkdown(items: ItemRecord[], schedules: ScheduleRecord[], worklogs: WorklogRecord[]) {
   return [
-    "# ScaffoldOrganizer Export",
+    "# Scaffold Organizer Export",
     "",
     "## Items",
     ...items.map((item) => `- [${item.status}] ${item.title}`),
@@ -752,9 +753,9 @@ export function AppShell({ initialData }: Props) {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
+      <header className={`topbar ${showAuthPanel ? "auth-topbar" : ""}`}>
         <div>
-          <h1>ScaffoldOrganizer</h1>
+          <h1>Scaffold Organizer</h1>
           <p className="feedback" data-level={feedbackLevel}>{feedback}</p>
         </div>
         {bootstrap.user ? (
@@ -794,55 +795,69 @@ export function AppShell({ initialData }: Props) {
       </header>
 
       {showAuthPanel ? (
-        <section key={authMode} className="auth-panel">
-          <h2>{authMode === "login" ? "Login" : "Sign up"}</h2>
-          {bootstrap.user?.isGuest ? (
-            <p className="meta">게스트 데이터를 계정에 저장하려면 로그인하거나 회원가입하세요.</p>
-          ) : null}
-          <input
-            key={`email-${authMode}`}
-            type="email"
-            placeholder="email"
-            autoComplete="off"
-            value={authDraft.email}
-            onChange={(event) => setAuthDraft({ ...authDraft, email: event.target.value })}
-          />
-          {authMode === "signup" ? (
+        <div className="auth-landing">
+          <section className="auth-intro" aria-labelledby="auth-intro-title">
+            <span>{authIntro.eyebrow}</span>
+            <h2 id="auth-intro-title">{authIntro.title}</h2>
+            <p className="auth-lead">{authIntro.lead}</p>
+            <p>{authIntro.description}</p>
+            <ul>
+              {authIntro.points.map((point) => (
+                <li key={point}>{point}</li>
+              ))}
+            </ul>
+          </section>
+
+          <section key={authMode} className="auth-panel">
+            <h2>{authMode === "login" ? "Login" : "Sign up"}</h2>
+            {bootstrap.user?.isGuest ? (
+              <p className="meta">게스트 데이터를 계정에 저장하려면 로그인하거나 회원가입하세요.</p>
+            ) : null}
             <input
-              key={`nickname-${authMode}`}
-              type="text"
-              placeholder="nickname (optional)"
-              autoComplete="nickname"
-              value={authDraft.nickname}
-              onChange={(event) => setAuthDraft({ ...authDraft, nickname: event.target.value })}
+              key={`email-${authMode}`}
+              type="email"
+              placeholder="email"
+              autoComplete="off"
+              value={authDraft.email}
+              onChange={(event) => setAuthDraft({ ...authDraft, email: event.target.value })}
             />
-          ) : null}
-          <input
-            key={`password-${authMode}`}
-            type="password"
-            placeholder="password"
-            autoComplete={authMode === "login" ? "current-password" : "new-password"}
-            value={authDraft.password}
-            onChange={(event) => setAuthDraft({ ...authDraft, password: event.target.value })}
-          />
-          <div className="card-actions">
-            <button onClick={() => void submitAuth()} disabled={busyKey !== null}>
-              {authMode === "login" ? "Login" : "Create account"}
-            </button>
-            <button onClick={toggleAuthMode}>
-              {authMode === "login" ? "Need account?" : "Have account?"}
-            </button>
-          </div>
-          {bootstrap.user?.isGuest ? (
-            <button className="guest-try-button" onClick={() => setShowGuestAuth(false)}>
-              게스트 화면으로 돌아가기
-            </button>
-          ) : authMode === "login" ? (
-            <button className="guest-try-button" onClick={() => window.location.assign("/try")}>
-              로그인 없이 체험하기
-            </button>
-          ) : null}
-        </section>
+            {authMode === "signup" ? (
+              <input
+                key={`nickname-${authMode}`}
+                type="text"
+                placeholder="nickname (optional)"
+                autoComplete="nickname"
+                value={authDraft.nickname}
+                onChange={(event) => setAuthDraft({ ...authDraft, nickname: event.target.value })}
+              />
+            ) : null}
+            <input
+              key={`password-${authMode}`}
+              type="password"
+              placeholder="password"
+              autoComplete={authMode === "login" ? "current-password" : "new-password"}
+              value={authDraft.password}
+              onChange={(event) => setAuthDraft({ ...authDraft, password: event.target.value })}
+            />
+            <div className="card-actions">
+              <button onClick={() => void submitAuth()} disabled={busyKey !== null}>
+                {authMode === "login" ? "Login" : "Create account"}
+              </button>
+              <button onClick={toggleAuthMode}>
+                {authMode === "login" ? "Need account?" : "Have account?"}
+              </button>
+            </div>
+            {bootstrap.user?.isGuest ? (
+              <button className="guest-try-button" onClick={() => setShowGuestAuth(false)}>
+                게스트 화면으로 돌아가기
+              </button>
+            ) : authMode === "login" ? (
+              <button className="guest-try-button" onClick={() => window.location.assign("/try")}>
+                로그인 없이 체험하기
+              </button>
+            ) : null}
+          </section>
+        </div>
       ) : (
         <>
           <section className="workspace">
