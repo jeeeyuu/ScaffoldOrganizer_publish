@@ -8,7 +8,6 @@ export type AppTab =
   | "longterm"
   | "schedule"
   | "calendar"
-  | "sessions"
   | "worklogs"
   | "settings"
   | "admin"
@@ -34,16 +33,6 @@ export interface ItemRecord {
   externalRef: string | null;
 }
 
-export interface SessionRecord {
-  id: string;
-  title: string;
-  rawText: string;
-  structuredText: string;
-  createdAt: string;
-  updatedAt: string;
-  exportMdPath: string | null;
-}
-
 export interface WorklogRecord {
   id: string;
   logDate: string;
@@ -63,10 +52,22 @@ export interface ScheduleRecord {
   updatedAt: string;
 }
 
+export type CalendarWeekStartsOn = "monday" | "sunday";
+
 export interface UserSettingsRecord {
   nickname: string;
   worklogExportPath: string;
   customPrompt: string;
+  calendarWeekStartsOn: CalendarWeekStartsOn;
+}
+
+export interface StatusEventRecord {
+  id: string;
+  itemId: string | null;
+  eventType: string;
+  fromStatus: ItemStatus | null;
+  toStatus: ItemStatus | null;
+  createdAt: string;
 }
 
 export interface AdminVariableRecord {
@@ -81,6 +82,7 @@ export interface AuthUser {
   id: string;
   email: string;
   isAdmin: boolean;
+  isPreview?: boolean;
 }
 
 export interface StatusSnapshot {
@@ -90,7 +92,7 @@ export interface StatusSnapshot {
 }
 
 export interface PromptDefinition {
-  role: "command_router" | "classifier" | "task_structurer" | "worklog_writer";
+  role: "command_router" | "classifier" | "brain_dump_processor" | "task_structurer";
   model: string;
   developerMessage: string;
 }
@@ -99,9 +101,9 @@ export interface BootstrapPayload {
   user: AuthUser | null;
   status: StatusSnapshot;
   items: ItemRecord[];
-  sessions: SessionRecord[];
   worklogs: WorklogRecord[];
   schedules: ScheduleRecord[];
+  events: StatusEventRecord[];
   settings: UserSettingsRecord;
   adminVariables: AdminVariableRecord[];
   prompts: PromptDefinition[];
@@ -116,7 +118,7 @@ export interface RouterAction {
     | "mark_selected_item_done"
     | "create_schedule"
     | "generate_worklog"
-    | "save_session"
+    | "create_items"
     | "no_op";
   payload?: Record<string, unknown>;
 }

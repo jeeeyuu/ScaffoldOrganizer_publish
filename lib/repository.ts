@@ -2,16 +2,15 @@ import {
   demoAdminVariables,
   demoItems,
   demoSchedules,
-  demoSessions,
   demoSettings,
   demoStatus,
+  demoStatusEvents,
   demoUser,
   demoWorklogs,
 } from "@/lib/demo-data";
 import { isSupabaseConfigured } from "@/lib/env";
 import {
   generateGeminiJson,
-  generateGeminiText,
   isGeminiConfigured,
 } from "@/lib/gemini";
 import { PROMPT_REGISTRY } from "@/lib/prompts";
@@ -29,12 +28,14 @@ import type {
   RouterAction,
   RouterResult,
   ScheduleRecord,
-  SessionRecord,
+  StatusEventRecord,
   StatusSnapshot,
   UserSettingsRecord,
   WorklogDraftResult,
   WorklogRecord,
 } from "@/lib/types";
+
+const ARCHIVE_RETENTION_DAYS = 10;
 
 type ItemPatch = Partial<
   Pick<
@@ -49,6 +50,18 @@ type ClassificationResult = Pick<
 > &
   Pick<ItemRecord, "project" | "tags">;
 
+type BrainDumpItemDraft = Pick<
+  ItemRecord,
+  "itemType" | "title" | "content" | "horizon" | "priority" | "project" | "tags"
+>;
+
+type RawBrainDumpResult = {
+  currentSituation?: unknown;
+  currentState?: unknown;
+  rawTodos?: unknown;
+  items?: unknown;
+};
+
 type RawRouterResult = {
   mode?: unknown;
   actions?: unknown;
@@ -58,25 +71,79 @@ type RawRouterResult = {
 
 interface DemoStore {
   items: ItemRecord[];
-  sessions: SessionRecord[];
   worklogs: WorklogRecord[];
   schedules: ScheduleRecord[];
+  events: StatusEventRecord[];
   settings: UserSettingsRecord;
   adminVariables: AdminVariableRecord[];
 }
 
-let demoStore: DemoStore = {
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+declare global {
+  var __scaffoldOrganizerDemoStore: DemoStore | undefined;
+}
+
+const demoStore = globalThis.__scaffoldOrganizerDemoStore ??= {
   items: clone(demoItems),
-  sessions: clone(demoSessions),
   worklogs: clone(demoWorklogs),
   schedules: clone(demoSchedules),
+  events: clone(demoStatusEvents),
   settings: clone(demoSettings),
   adminVariables: clone(demoAdminVariables),
 };
 
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+const LEGACY_AGENCY_FULL = ["농촌", "진흥청"].join("");
+const LEGACY_AGENCY_SHORT = ["농", "진", "청"].join("");
+const LEGACY_LONG_READ = ["long", "read"].join("-");
+const LEGACY_DOMAIN_TOKEN = ["R", "N", "A"].join("");
+const LEGACY_FOUNDATION_MODEL = ["foundation", "model"].join(" ");
+const LEGACY_RESEARCH_WORD = ["연", "구"].join("");
+const LEGACY_RESEARCH_KO = ["리", "서", "치"].join("");
+const LEGACY_RESEARCH_EN = ["Res", "earch"].join("");
+
+function removeLegacyDemoTerms(value: string) {
+  return value
+    .replaceAll(`${LEGACY_AGENCY_FULL} 데이터`, "업무 데이터")
+    .replaceAll(`${LEGACY_AGENCY_SHORT} 데이터`, "업무 데이터")
+    .replaceAll(LEGACY_AGENCY_FULL, "업무 데이터")
+    .replaceAll(LEGACY_AGENCY_SHORT, "업무 데이터")
+    .replaceAll(`${LEGACY_RESEARCH_WORD} 데이터 데이터`, "업무 데이터")
+    .replaceAll(`${LEGACY_RESEARCH_WORD} 데이터`, "업무 데이터")
+    .replaceAll(`${LEGACY_LONG_READ} ${LEGACY_DOMAIN_TOKEN} ${LEGACY_FOUNDATION_MODEL} 아이디어`, "장기 개선 아이디어 정리")
+    .replaceAll(`${LEGACY_LONG_READ} ${LEGACY_DOMAIN_TOKEN}`, "업무 자료")
+    .replaceAll(`${LEGACY_DOMAIN_TOKEN} ${LEGACY_FOUNDATION_MODEL}`, "업무 자료")
+    .replaceAll(LEGACY_FOUNDATION_MODEL, "업무 자료")
+    .replaceAll(`장기 ${LEGACY_RESEARCH_KO} backlog로 유지`, "바로 실행하지 않을 제품 개선 아이디어를 장기 목록으로 유지합니다.")
+    .replaceAll(LEGACY_RESEARCH_EN, "Product")
+    .replaceAll(LEGACY_FOUNDATION_MODEL.replaceAll(" ", "-"), "long-term");
 }
+
+function sanitizeDemoStore() {
+  demoStore.items = demoStore.items.map((item) => ({
+    ...item,
+    title: removeLegacyDemoTerms(item.title),
+    content: removeLegacyDemoTerms(item.content),
+    project: removeLegacyDemoTerms(item.project),
+    tags: item.tags.map(removeLegacyDemoTerms),
+  }));
+
+  demoStore.schedules = demoStore.schedules.map((schedule) => ({
+    ...schedule,
+    title: removeLegacyDemoTerms(schedule.title),
+    notes: removeLegacyDemoTerms(schedule.notes),
+  }));
+
+  demoStore.worklogs = demoStore.worklogs.map((worklog) => ({
+    ...worklog,
+    title: removeLegacyDemoTerms(worklog.title),
+    contentMd: removeLegacyDemoTerms(worklog.contentMd),
+  }));
+}
+
+sanitizeDemoStore();
 
 function buildId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -86,8 +153,67 @@ function isoNow() {
   return new Date().toISOString();
 }
 
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function dateKey(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
 function todayDate() {
-  return new Date().toISOString().slice(0, 10);
+  return dateKey(new Date());
+}
+
+function archiveDateForItem(item: Pick<ItemRecord, "id" | "updatedAt">, events: StatusEventRecord[]) {
+  const archivedEvents = events
+    .filter((event) => event.itemId === item.id && event.toStatus === "archived")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  return archivedEvents[0]?.createdAt ?? item.updatedAt;
+}
+
+function itemCalendarDate(item: ItemRecord) {
+  if (item.status === "done" && item.completedAt) {
+    return item.completedAt.slice(0, 10);
+  }
+  return (item.scheduledDate || item.dueDate || item.updatedAt || item.createdAt).slice(0, 10);
+}
+
+function statusChangeDate(events: StatusEventRecord[], itemId: string, toStatus: ItemStatus) {
+  return events
+    .filter((event) => event.itemId === itemId && event.toStatus === toStatus)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
+    ?.createdAt.slice(0, 10);
+}
+
+function doingItemsForDate(items: ItemRecord[], events: StatusEventRecord[], date: string) {
+  const today = todayDate();
+  if (date > today) {
+    return [];
+  }
+
+  return items.filter((item) => {
+    const doingStart = statusChangeDate(events, item.id, "doing");
+    if (!doingStart) {
+      return item.status === "doing" && itemCalendarDate(item) <= date;
+    }
+
+    const doneDate =
+      statusChangeDate(events, item.id, "done") ||
+      (item.status === "done" && item.completedAt ? item.completedAt.slice(0, 10) : null);
+
+    return date >= doingStart && (!doneDate || date < doneDate);
+  });
+}
+
+function isOlderThanArchiveRetention(archiveDate: string) {
+  const archivedAt = new Date(archiveDate).getTime();
+  if (Number.isNaN(archivedAt)) {
+    return false;
+  }
+
+  return Date.now() - archivedAt > ARCHIVE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 }
 
 function mapItemRow(row: Record<string, unknown>): ItemRecord {
@@ -109,18 +235,6 @@ function mapItemRow(row: Record<string, unknown>): ItemRecord {
     completedAt: (row.completed_at as string | null) ?? null,
     sessionId: (row.session_id as string | null) ?? null,
     externalRef: (row.external_ref as string | null) ?? null,
-  };
-}
-
-function mapSessionRow(row: Record<string, unknown>): SessionRecord {
-  return {
-    id: String(row.id),
-    title: String(row.title ?? ""),
-    rawText: String(row.raw_text ?? ""),
-    structuredText: String(row.structured_text ?? ""),
-    createdAt: String(row.created_at ?? ""),
-    updatedAt: String(row.updated_at ?? ""),
-    exportMdPath: (row.export_md_path as string | null) ?? null,
   };
 }
 
@@ -147,11 +261,23 @@ function mapScheduleRow(row: Record<string, unknown>): ScheduleRecord {
   };
 }
 
+function mapStatusEventRow(row: Record<string, unknown>): StatusEventRecord {
+  return {
+    id: String(row.id),
+    itemId: (row.item_id as string | null) ?? null,
+    eventType: String(row.event_type ?? ""),
+    fromStatus: (row.from_status as ItemStatus | null) ?? null,
+    toStatus: (row.to_status as ItemStatus | null) ?? null,
+    createdAt: String(row.created_at ?? ""),
+  };
+}
+
 function mapSettingsRow(row: Record<string, unknown> | null): UserSettingsRecord {
   return {
     nickname: String(row?.nickname ?? ""),
     worklogExportPath: String(row?.worklog_export_path ?? ""),
     customPrompt: String(row?.custom_prompt ?? ""),
+    calendarWeekStartsOn: row?.calendar_week_starts_on === "sunday" ? "sunday" : "monday",
   };
 }
 
@@ -171,6 +297,10 @@ function supabaseUserId(user: AuthUser | null) {
   }
 
   return user?.id ?? null;
+}
+
+function usesDemoStore(user: AuthUser | null) {
+  return !isSupabaseConfigured() || user?.isPreview === true;
 }
 
 function promptFor(role: (typeof PROMPT_REGISTRY)[number]["role"]) {
@@ -243,9 +373,123 @@ function normalizePriority(value: unknown) {
   return Number.isInteger(priority) && priority >= 1 && priority <= 5 ? priority : 3;
 }
 
+function normalizeStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string").slice(0, 8)
+    : [];
+}
+
 function personalPromptBlock(settings: UserSettingsRecord) {
   const prompt = settings.customPrompt.trim();
   return prompt ? `[PERSONAL PROMPT]\n${prompt}` : "[PERSONAL PROMPT]\n(none)";
+}
+
+function normalizeBrainDumpDraft(
+  value: unknown,
+  fallbackText: string,
+  context?: { currentSituation: string; currentState: string },
+): BrainDumpItemDraft | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const entry = value as Record<string, unknown>;
+  const title = typeof entry.title === "string" ? entry.title.trim() : "";
+  if (!title) {
+    return null;
+  }
+
+  const itemType = isItemType(entry.itemType) ? entry.itemType : "task";
+  const horizon = isItemHorizon(entry.horizon) ? entry.horizon : "now";
+
+  const content =
+    typeof entry.content === "string" && entry.content.trim()
+      ? entry.content.trim()
+      : fallbackText;
+  const contextPrefix = [
+    context?.currentSituation ? `상황: ${context.currentSituation}` : "",
+    context?.currentState ? `상태: ${context.currentState}` : "",
+  ].filter(Boolean).join(" / ");
+
+  return {
+    title: title.slice(0, 120),
+    content: contextPrefix ? `${contextPrefix} / ${content}` : content,
+    itemType,
+    horizon,
+    priority: normalizePriority(entry.priority),
+    project: typeof entry.project === "string" ? entry.project.trim() : "",
+    tags: normalizeStringArray(entry.tags),
+  };
+}
+
+function splitBrainDumpFallback(text: string): BrainDumpItemDraft[] {
+  const lines = text
+    .split(/\n|[;；]|(?<=[.!?。！？])\s+/)
+    .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
+    .filter(Boolean);
+  const chunks = lines.length > 1 ? lines : [text.trim()];
+
+  return chunks.slice(0, 12).map((chunk) => {
+    const classification = classifyTextFallback(chunk);
+    return {
+      title: chunk.slice(0, 80),
+      content: chunk,
+      itemType: classification.itemType,
+      horizon: classification.horizon,
+      priority: classification.priority,
+      project: classification.project,
+      tags: classification.tags,
+    };
+  });
+}
+
+async function processBrainDumpWithGemini(
+  text: string,
+  settings: UserSettingsRecord,
+): Promise<BrainDumpItemDraft[] | null> {
+  if (!isGeminiConfigured()) {
+    return null;
+  }
+
+  try {
+    const response = await generateGeminiJson<RawBrainDumpResult>({
+      prompt: promptFor("brain_dump_processor"),
+      contents: [
+        personalPromptBlock(settings),
+        "",
+        "[RULES]",
+        "- Return currentSituation, currentState, rawTodos, and 1 to 12 final items.",
+        "- Every returned item will be stored with status=inbox, regardless of inferred urgency.",
+        "- First separate situation/state from todos, then split todos into concrete next actions.",
+        "- Adjust granularity to the user's situation, state, and personal prompt.",
+        "- Put the reason/context for each action in content.",
+        "",
+        `[BRAIN DUMP]\n${text}`,
+      ].join("\n"),
+      maxOutputTokens: 4096,
+    });
+
+    const context = {
+      currentSituation:
+        typeof response?.currentSituation === "string"
+          ? response.currentSituation.trim().slice(0, 240)
+          : "",
+      currentState:
+        typeof response?.currentState === "string"
+          ? response.currentState.trim().slice(0, 240)
+          : "",
+    };
+    const items = Array.isArray(response?.items)
+      ? response.items
+          .map((item) => normalizeBrainDumpDraft(item, text, context))
+          .filter((item): item is BrainDumpItemDraft => Boolean(item))
+          .slice(0, 12)
+      : [];
+
+    return items.length ? items : null;
+  } catch (_error) {
+    return null;
+  }
 }
 
 async function classifyTextWithGemini(
@@ -292,55 +536,6 @@ async function classifyText(text: string, user: AuthUser | null) {
   }
 }
 
-function buildStructuredMarkdown(lines: string[]) {
-  const active = lines.filter((line) => !line.includes("장기") && !line.includes("나중"));
-  const longTerm = lines.filter((line) => line.includes("장기") || line.includes("나중"));
-
-  return [
-    "## 🍎 브레인덤프 분류 및 구조화",
-    "",
-    "## 🥑 우선순위 조정 & 실행 원자화",
-    "",
-    "### 지금 할 일 (Active Now)",
-    ...active.map((line) => `- ${line}`),
-    "",
-    "### 장기 보존 (Long-term Backlog)",
-    ...(longTerm.length ? longTerm.map((line) => `- ${line}`) : ["- 장기 분류 항목 없음"]),
-    "",
-    "### 생각 / 메모 (Thought Fragments)",
-    "- 필요 시 classifier prompt로 재분류",
-  ].join("\n");
-}
-
-async function structureTextWithGemini(
-  input: { title: string; rawText: string },
-  settings: UserSettingsRecord,
-) {
-  if (!isGeminiConfigured()) {
-    return null;
-  }
-
-  try {
-    return await generateGeminiText({
-      prompt: promptFor("task_structurer"),
-      contents: [
-        personalPromptBlock(settings),
-        "",
-        `[TITLE]\n${input.title}`,
-        "",
-        `[DATE]\n${todayDate()}`,
-        "",
-        `[BRAIN DUMP]`,
-        input.rawText,
-      ].join("\n"),
-      temperature: 0.2,
-      maxOutputTokens: 4096,
-    });
-  } catch (_error) {
-    return null;
-  }
-}
-
 function isRouterActionType(value: unknown): value is RouterAction["type"] {
   return [
     "create_item",
@@ -349,7 +544,7 @@ function isRouterActionType(value: unknown): value is RouterAction["type"] {
     "mark_selected_item_done",
     "create_schedule",
     "generate_worklog",
-    "save_session",
+    "create_items",
     "no_op",
   ].includes(String(value));
 }
@@ -424,6 +619,10 @@ async function routeCommandWithGemini(
 }
 
 async function listItemsFromSupabase(user: AuthUser | null) {
+  if (usesDemoStore(user)) {
+    return clone(demoStore.items);
+  }
+
   const supabase = createServerSupabase();
   if (!supabase) {
     return clone(demoStore.items);
@@ -444,28 +643,11 @@ async function listItemsFromSupabase(user: AuthUser | null) {
   return (data ?? []).map((row) => mapItemRow(row));
 }
 
-async function listSessionsFromSupabase(user: AuthUser | null) {
-  const supabase = createServerSupabase();
-  if (!supabase) {
-    return clone(demoStore.sessions);
-  }
-  const userId = supabaseUserId(user);
-  if (!userId) return [];
-
-  const { data, error } = await supabase
-    .from("sessions")
-    .select("*")
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return (data ?? []).map((row) => mapSessionRow(row));
-}
-
 async function listWorklogsFromSupabase(user: AuthUser | null) {
+  if (usesDemoStore(user)) {
+    return clone(demoStore.worklogs);
+  }
+
   const supabase = createServerSupabase();
   if (!supabase) {
     return clone(demoStore.worklogs);
@@ -487,6 +669,10 @@ async function listWorklogsFromSupabase(user: AuthUser | null) {
 }
 
 async function listSchedulesFromSupabase(user: AuthUser | null) {
+  if (usesDemoStore(user)) {
+    return clone(demoStore.schedules);
+  }
+
   const supabase = createServerSupabase();
   if (!supabase) {
     return clone(demoStore.schedules);
@@ -507,7 +693,37 @@ async function listSchedulesFromSupabase(user: AuthUser | null) {
   return (data ?? []).map((row) => mapScheduleRow(row));
 }
 
+async function listStatusEventsFromSupabase(user: AuthUser | null) {
+  if (usesDemoStore(user)) {
+    return clone(demoStore.events);
+  }
+
+  const supabase = createServerSupabase();
+  if (!supabase) {
+    return clone(demoStore.events);
+  }
+  const userId = supabaseUserId(user);
+  if (!userId) return [];
+
+  const { data, error } = await supabase
+    .from("events")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("event_type", "status_change")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row) => mapStatusEventRow(row));
+}
+
 async function getUserSettingsFromSupabase(user: AuthUser | null) {
+  if (usesDemoStore(user)) {
+    return clone(demoStore.settings);
+  }
+
   const supabase = createServerSupabase();
   if (!supabase) {
     return clone(demoStore.settings);
@@ -530,6 +746,10 @@ async function getUserSettingsFromSupabase(user: AuthUser | null) {
 
 async function listAdminVariablesFromSupabase(user: AuthUser | null) {
   if (!user?.isAdmin) return [];
+  if (usesDemoStore(user)) {
+    return clone(demoStore.adminVariables);
+  }
+
   const supabase = createServerSupabase();
   if (!supabase) {
     return clone(demoStore.adminVariables);
@@ -547,6 +767,65 @@ async function listAdminVariablesFromSupabase(user: AuthUser | null) {
   return (data ?? []).map((row) => mapAdminVariableRow(row));
 }
 
+async function cleanupExpiredArchivedItems(user: AuthUser | null) {
+  if (usesDemoStore(user)) {
+    const expiredIds = demoStore.items
+      .filter((item) => item.status === "archived")
+      .filter((item) => isOlderThanArchiveRetention(archiveDateForItem(item, demoStore.events)))
+      .map((item) => item.id);
+
+    if (expiredIds.length) {
+      demoStore.items = demoStore.items.filter((item) => !expiredIds.includes(item.id));
+      demoStore.events = demoStore.events.filter((event) => !event.itemId || !expiredIds.includes(event.itemId));
+    }
+    return;
+  }
+
+  const supabase = createServerSupabase();
+  if (!supabase) {
+    return;
+  }
+  const userId = supabaseUserId(user);
+  if (!userId) return;
+
+  const { data: itemRows, error: itemError } = await supabase
+    .from("items")
+    .select("id, updated_at")
+    .eq("user_id", userId)
+    .eq("status", "archived");
+
+  if (itemError || !itemRows?.length) {
+    return;
+  }
+
+  const { data: eventRows } = await supabase
+    .from("events")
+    .select("item_id, created_at")
+    .eq("user_id", userId)
+    .eq("event_type", "status_change")
+    .eq("to_status", "archived");
+
+  const archivedEvents = (eventRows ?? []).map((row) => ({
+    id: "",
+    itemId: (row.item_id as string | null) ?? null,
+    eventType: "status_change",
+    fromStatus: null,
+    toStatus: "archived" as const,
+    createdAt: String(row.created_at ?? ""),
+  }));
+  const expiredIds = itemRows
+    .map((row) => ({
+      id: String(row.id),
+      updatedAt: String(row.updated_at ?? ""),
+    }))
+    .filter((item) => isOlderThanArchiveRetention(archiveDateForItem(item, archivedEvents)))
+    .map((item) => item.id);
+
+  if (expiredIds.length) {
+    await supabase.from("items").delete().eq("user_id", userId).in("id", expiredIds);
+  }
+}
+
 export async function getStatusSnapshot(): Promise<StatusSnapshot> {
   if (!isSupabaseConfigured()) {
     return {
@@ -562,14 +841,34 @@ export async function getStatusSnapshot(): Promise<StatusSnapshot> {
 }
 
 export async function getBootstrapPayload(user: AuthUser | null): Promise<BootstrapPayload> {
+  if (usesDemoStore(user)) {
+    await cleanupExpiredArchivedItems(user);
+
+    return {
+      user: user ?? demoUser,
+      status: {
+        ...demoStatus,
+        ai: isGeminiConfigured() ? "Ready" : "Local fallback",
+      },
+      items: clone(demoStore.items),
+      worklogs: clone(demoStore.worklogs),
+      schedules: clone(demoStore.schedules),
+      events: clone(demoStore.events),
+      settings: clone(demoStore.settings),
+      adminVariables: user?.isAdmin || !user ? clone(demoStore.adminVariables) : [],
+      prompts: PROMPT_REGISTRY,
+      usingSupabase: false,
+    };
+  }
+
   if (isSupabaseConfigured() && !user) {
     return {
       user: null,
       status: await getStatusSnapshot(),
       items: [],
-      sessions: [],
       worklogs: [],
       schedules: [],
+      events: [],
       settings: clone(demoSettings),
       adminVariables: [],
       prompts: PROMPT_REGISTRY,
@@ -578,12 +877,14 @@ export async function getBootstrapPayload(user: AuthUser | null): Promise<Bootst
   }
 
   try {
-    const [status, items, sessions, worklogs, schedules, settings, adminVariables] = await Promise.all([
+    await cleanupExpiredArchivedItems(user);
+
+    const [status, items, worklogs, schedules, events, settings, adminVariables] = await Promise.all([
       getStatusSnapshot(),
       listItemsFromSupabase(user),
-      listSessionsFromSupabase(user),
       listWorklogsFromSupabase(user),
       listSchedulesFromSupabase(user),
+      listStatusEventsFromSupabase(user),
       getUserSettingsFromSupabase(user),
       listAdminVariablesFromSupabase(user),
     ]);
@@ -592,9 +893,9 @@ export async function getBootstrapPayload(user: AuthUser | null): Promise<Bootst
       user: user ?? demoUser,
       status,
       items,
-      sessions,
       worklogs,
       schedules,
+      events,
       settings,
       adminVariables,
       prompts: PROMPT_REGISTRY,
@@ -610,9 +911,9 @@ export async function getBootstrapPayload(user: AuthUser | null): Promise<Bootst
         },
         user,
         items: [],
-        sessions: [],
         worklogs: [],
         schedules: [],
+        events: [],
         settings: clone(demoSettings),
         adminVariables: [],
         prompts: PROMPT_REGISTRY,
@@ -628,9 +929,9 @@ export async function getBootstrapPayload(user: AuthUser | null): Promise<Bootst
       },
       user: user ?? demoUser,
       items: clone(demoStore.items),
-      sessions: clone(demoStore.sessions),
       worklogs: clone(demoStore.worklogs),
       schedules: clone(demoStore.schedules),
+      events: clone(demoStore.events),
       settings: clone(demoStore.settings),
       adminVariables: user?.isAdmin ? clone(demoStore.adminVariables) : [],
       prompts: PROMPT_REGISTRY,
@@ -644,7 +945,8 @@ export async function listItems(user: AuthUser | null) {
 }
 
 export async function updateItem(user: AuthUser | null, id: string, patch: ItemPatch) {
-  if (!isSupabaseConfigured()) {
+  if (usesDemoStore(user)) {
+    const previous = demoStore.items.find((item) => item.id === id);
     demoStore.items = demoStore.items.map((item) =>
       item.id === id
         ? {
@@ -659,6 +961,16 @@ export async function updateItem(user: AuthUser | null, id: string, patch: ItemP
     if (!nextItem) {
       throw new Error(`Item not found: ${id}`);
     }
+    if (previous && patch.status && previous.status !== patch.status) {
+      demoStore.events.unshift({
+        id: buildId("event"),
+        itemId: id,
+        eventType: "status_change",
+        fromStatus: previous.status,
+        toStatus: patch.status,
+        createdAt: isoNow(),
+      });
+    }
     return clone(nextItem);
   }
 
@@ -668,6 +980,13 @@ export async function updateItem(user: AuthUser | null, id: string, patch: ItemP
   }
   const userId = supabaseUserId(user);
   if (!userId) throw new Error("Authentication required");
+
+  const { data: previous } = await supabase
+    .from("items")
+    .select("status")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .single();
 
   const { data, error } = await supabase
     .from("items")
@@ -689,11 +1008,28 @@ export async function updateItem(user: AuthUser | null, id: string, patch: ItemP
     throw new Error(error.message);
   }
 
+  const previousStatus = previous?.status as ItemStatus | undefined;
+  if (patch.status && previousStatus && previousStatus !== patch.status) {
+    const { error: eventError } = await supabase.from("events").insert({
+      user_id: userId,
+      item_id: id,
+      event_type: "status_change",
+      from_status: previousStatus,
+      to_status: patch.status,
+      payload: { title: data.title },
+      created_at: isoNow(),
+    });
+
+    if (eventError) {
+      throw new Error(eventError.message);
+    }
+  }
+
   return mapItemRow(data);
 }
 
 export async function deleteItem(user: AuthUser | null, id: string) {
-  if (!isSupabaseConfigured()) {
+  if (usesDemoStore(user)) {
     demoStore.items = demoStore.items.filter((item) => item.id !== id);
     return;
   }
@@ -718,6 +1054,19 @@ export async function createItem(user: AuthUser | null, input: {
   sessionId?: string | null;
 }) {
   const classification = await classifyText(input.content || input.title, user);
+  return createItemFromClassification(user, input, classification);
+}
+
+async function createItemFromClassification(
+  user: AuthUser | null,
+  input: {
+    title: string;
+    content?: string;
+    source?: ItemSource;
+    sessionId?: string | null;
+  },
+  classification: ClassificationResult,
+) {
   const now = isoNow();
 
   const item: ItemRecord = {
@@ -740,7 +1089,7 @@ export async function createItem(user: AuthUser | null, input: {
     externalRef: null,
   };
 
-  if (!isSupabaseConfigured()) {
+  if (usesDemoStore(user)) {
     demoStore.items.unshift(item);
     return clone(item);
   }
@@ -783,121 +1132,34 @@ export async function createItem(user: AuthUser | null, input: {
   return mapItemRow(data);
 }
 
-export async function listSessions(user: AuthUser | null) {
-  return listSessionsFromSupabase(user);
+async function createInboxItemFromBrainDump(user: AuthUser | null, draft: BrainDumpItemDraft) {
+  return createItemFromClassification(
+    user,
+    {
+      title: draft.title,
+      content: draft.content,
+      source: "brain_dump",
+    },
+    {
+      itemType: draft.itemType,
+      status: "inbox",
+      horizon: draft.horizon,
+      priority: draft.priority,
+      project: draft.project,
+      tags: draft.tags,
+    },
+  );
 }
 
-export async function getSessionById(user: AuthUser | null, id: string) {
-  if (!isSupabaseConfigured()) {
-    const session = demoStore.sessions.find((entry) => entry.id === id);
-    if (!session) {
-      throw new Error(`Session not found: ${id}`);
-    }
-    return clone(session);
+async function createInboxItemsFromBrainDump(user: AuthUser | null, text: string, settings: UserSettingsRecord) {
+  const drafts = (await processBrainDumpWithGemini(text, settings)) ?? splitBrainDumpFallback(text);
+  const created: ItemRecord[] = [];
+
+  for (const draft of drafts) {
+    created.push(await createInboxItemFromBrainDump(user, draft));
   }
 
-  const supabase = createServerSupabase();
-  if (!supabase) {
-    throw new Error("Supabase client unavailable");
-  }
-  const userId = supabaseUserId(user);
-  if (!userId) throw new Error("Authentication required");
-
-  const { data, error } = await supabase
-    .from("sessions")
-    .select("*")
-    .eq("id", id)
-    .eq("user_id", userId)
-    .single();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return mapSessionRow(data);
-}
-
-export async function saveSession(user: AuthUser | null, input: {
-  title: string;
-  rawText: string;
-  structuredText: string;
-}) {
-  const session: SessionRecord = {
-    id: buildId("session"),
-    title: input.title,
-    rawText: input.rawText,
-    structuredText: input.structuredText,
-    createdAt: isoNow(),
-    updatedAt: isoNow(),
-    exportMdPath: null,
-  };
-
-  if (!isSupabaseConfigured()) {
-    demoStore.sessions.unshift(session);
-    return clone(session);
-  }
-
-  const supabase = createServerSupabase();
-  if (!supabase) {
-    throw new Error("Supabase client unavailable");
-  }
-  const userId = supabaseUserId(user);
-  if (!userId) throw new Error("Authentication required");
-
-  const { data, error } = await supabase
-    .from("sessions")
-    .insert({
-      user_id: userId,
-      title: session.title,
-      raw_text: session.rawText,
-      structured_text: session.structuredText,
-      created_at: session.createdAt,
-      updated_at: session.updatedAt,
-      export_md_path: session.exportMdPath,
-    })
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return mapSessionRow(data);
-}
-
-export async function structureSession(user: AuthUser | null, input: { title: string; rawText: string }) {
-  const lines = input.rawText
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const settings = await getUserSettingsFromSupabase(user);
-  const geminiStructuredText = await structureTextWithGemini(input, settings);
-  const structuredText = geminiStructuredText ?? buildStructuredMarkdown(lines);
-  const session = await saveSession(user, {
-    title: input.title,
-    rawText: input.rawText,
-    structuredText,
-  });
-
-  const createdItems: ItemRecord[] = [];
-  for (const line of lines) {
-    createdItems.push(
-      await createItem(user, {
-        title: line.slice(0, 80),
-        content: line,
-        source: "brain_dump",
-        sessionId: session.id,
-      }),
-    );
-  }
-
-  return {
-    session,
-    structuredText,
-    items: createdItems,
-    usedFallback: !geminiStructuredText,
-  };
+  return created;
 }
 
 export async function listWorklogs(user: AuthUser | null) {
@@ -920,7 +1182,7 @@ export async function saveWorklog(user: AuthUser | null, input: {
     updatedAt: isoNow(),
   };
 
-  if (!isSupabaseConfigured()) {
+  if (usesDemoStore(user)) {
     demoStore.worklogs.unshift(worklog);
     return clone(worklog);
   }
@@ -966,7 +1228,7 @@ export async function createSchedule(
     updatedAt: isoNow(),
   };
 
-  if (!isSupabaseConfigured()) {
+  if (usesDemoStore(user)) {
     demoStore.schedules.unshift(schedule);
     return clone(schedule);
   }
@@ -999,7 +1261,7 @@ export async function createSchedule(
 }
 
 export async function deleteSchedule(user: AuthUser | null, id: string) {
-  if (!isSupabaseConfigured()) {
+  if (usesDemoStore(user)) {
     demoStore.schedules = demoStore.schedules.filter((schedule) => schedule.id !== id);
     return;
   }
@@ -1021,7 +1283,7 @@ export async function updateUserSettings(
   user: AuthUser | null,
   settings: UserSettingsRecord,
 ) {
-  if (!isSupabaseConfigured()) {
+  if (usesDemoStore(user)) {
     demoStore.settings = clone(settings);
     return clone(demoStore.settings);
   }
@@ -1040,6 +1302,7 @@ export async function updateUserSettings(
       nickname: settings.nickname,
       worklog_export_path: settings.worklogExportPath,
       custom_prompt: settings.customPrompt,
+      calendar_week_starts_on: settings.calendarWeekStartsOn,
       updated_at: isoNow(),
     })
     .select("*")
@@ -1060,7 +1323,7 @@ export async function upsertAdminVariable(
     throw new Error("Admin access required");
   }
 
-  if (!isSupabaseConfigured()) {
+  if (usesDemoStore(user)) {
     const existing = demoStore.adminVariables.find((entry) => entry.id === input.id || entry.key === input.key);
     const next: AdminVariableRecord = {
       id: existing?.id ?? buildId("admin-var"),
@@ -1097,55 +1360,19 @@ export async function upsertAdminVariable(
   return mapAdminVariableRow(data);
 }
 
-async function writeWorklogWithGemini(input: {
-  today: string;
-  started: ItemRecord[];
-  doing: ItemRecord[];
-  done: ItemRecord[];
-  deferred: ItemRecord[];
-  notes: ItemRecord[];
-  nextActions: ItemRecord[];
-  settings: UserSettingsRecord;
-}) {
-  if (!isGeminiConfigured()) {
-    return null;
-  }
-
-  try {
-    return await generateGeminiText({
-      prompt: promptFor("worklog_writer"),
-      contents: JSON.stringify(
-        {
-          personal_prompt: input.settings.customPrompt,
-          preferred_export_path: input.settings.worklogExportPath,
-          date: input.today,
-          started_tasks: input.started.map((item) => item.title),
-          active_doing_tasks: input.doing.map((item) => item.title),
-          completed_tasks: input.done.map((item) => item.title),
-          deferred_or_long_term: input.deferred.map((item) => item.title),
-          thought_fragments: input.notes.map((item) => item.title),
-          next_actions: input.nextActions.slice(0, 5).map((item) => item.title),
-        },
-        null,
-        2,
-      ),
-      temperature: 0.2,
-      maxOutputTokens: 4096,
-    });
-  } catch (_error) {
-    return null;
-  }
-}
-
 export async function generateWorklogDraft(user: AuthUser | null): Promise<WorklogDraftResult> {
-  const [items, settings] = await Promise.all([
+  const [items, schedules, events] = await Promise.all([
     listItems(user),
-    getUserSettingsFromSupabase(user),
+    listSchedulesFromSupabase(user),
+    listStatusEventsFromSupabase(user),
   ]);
   const today = todayDate();
   const started = items.filter((item) => item.createdAt.slice(0, 10) === today);
-  const doing = items.filter((item) => item.status === "doing");
-  const done = items.filter((item) => item.status === "done");
+  const doing = doingItemsForDate(items, events, today);
+  const done = items.filter((item) => item.status === "done" && itemCalendarDate(item) === today);
+  const todaysSchedules = schedules
+    .filter((schedule) => schedule.scheduleDate === today)
+    .sort((a, b) => a.title.localeCompare(b.title));
   const deferred = items.filter((item) => item.horizon === "long_term" || item.status === "archived");
   const notes = items.filter((item) => item.itemType !== "task");
   const nextActions = items.filter(
@@ -1155,54 +1382,46 @@ export async function generateWorklogDraft(user: AuthUser | null): Promise<Workl
       item.horizon !== "long_term",
   );
 
-  const fallbackContentMd = [
+  const contentMd = [
     `# 📅 업무일지 — ${today}`,
     "",
     "---",
     "",
-    "## 1. 🟢 오늘 착수한 작업 (Started)",
+    "## 1. 📌 오늘 일정 (Schedules)",
+    ...(todaysSchedules.length
+      ? todaysSchedules.map((schedule) => `- ${schedule.title}${schedule.notes ? `: ${schedule.notes}` : ""}`)
+      : ["- 예정된 일정 없음"]),
+    "",
+    "## 2. 🟢 오늘 추가된 작업 (Created Today)",
     ...(started.length ? started.map((item) => `- ${item.title}`) : ["- 신규 착수 항목 없음"]),
     "",
-    "## 2. 🔵 진행 중인 작업 (In Progress)",
+    "## 3. 🔵 오늘 진행 중인 작업 (Calendar Doing)",
     ...(doing.length ? doing.map((item) => `- ${item.title}`) : ["- 진행 중 항목 없음"]),
     "",
-    "## 3. ✅ 완료한 작업 (Completed)",
+    "## 4. ✅ 오늘 완료한 작업 (Completed Today)",
     ...(done.length ? done.map((item) => `- ${item.title}`) : ["- 완료 항목 없음"]),
     "",
-    "## 4. ⏸ 보류 / 장기 전환 (Deferred / Long-term)",
+    "## 5. ⏸ 보류 / 장기 전환 (Deferred / Long-term)",
     ...(deferred.length ? deferred.map((item) => `- ${item.title}`) : ["- 장기/보류 항목 없음"]),
     "",
-    "## 5. 🧠 메모 및 관찰 (Notes & Observations)",
+    "## 6. 🧠 메모 및 관찰 (Notes & Observations)",
     ...(notes.length ? notes.map((item) => `- ${item.title}`) : ["- 메모 없음"]),
-    "",
-    "## 6. ⚠️ 이슈 / 블로커 (Issues / Blockers)",
-    "- 수동 fallback 초안입니다. Gemini adapter 연결 전까지는 DB 상태 기반으로만 생성됩니다.",
     "",
     "## 7. ▶️ 다음 액션 (Next Actions)",
     ...(nextActions.length ? nextActions.slice(0, 5).map((item) => `- ${item.title}`) : ["- 다음 액션 없음"]),
   ].join("\n");
-  const geminiContentMd = await writeWorklogWithGemini({
-    today,
-    started,
-    doing,
-    done,
-    deferred,
-    notes,
-    nextActions,
-    settings,
-  });
 
   return {
     title: `업무일지 — ${today}`,
     logDate: today,
-    contentMd: geminiContentMd ?? fallbackContentMd,
+    contentMd,
     contextSummary: {
+      schedules: todaysSchedules.map((schedule) => schedule.id),
       started: started.map((item) => item.id),
       doing: doing.map((item) => item.id),
       done: done.map((item) => item.id),
-      exportPath: settings.worklogExportPath,
     },
-    usedFallback: !geminiContentMd,
+    usedFallback: false,
   };
 }
 
@@ -1213,8 +1432,11 @@ function createRouterFeedback(actions: RouterAction[]) {
   if (actions.some((action) => action.type === "move_selected_item_to_long_term")) {
     return "선택 항목을 장기 과제로 이동했습니다.";
   }
+  if (actions.some((action) => action.type === "create_items")) {
+    return "브레인덤프를 작은 할일들로 나눠 Inbox에 저장했습니다.";
+  }
   if (actions.some((action) => action.type === "create_item")) {
-    return "입력을 새 항목으로 저장했습니다.";
+    return "브레인덤프를 작은 할일들로 나눠 Inbox에 저장했습니다.";
   }
   if (actions.some((action) => action.type === "create_schedule")) {
     return "일정을 추가했습니다.";
@@ -1280,21 +1502,15 @@ async function applyRouterActions(
       await createSchedule(user, { title, notes, scheduleDate });
     }
 
-    if (action.type === "create_item") {
-      const title =
-        typeof action.payload?.title === "string" && action.payload.title.trim()
-          ? action.payload.title.trim()
-          : text.slice(0, 80);
-      const content =
+    if (action.type === "create_item" || action.type === "create_items") {
+      const sourceText =
         typeof action.payload?.content === "string" && action.payload.content.trim()
-          ? action.payload.content
-          : text;
-
-      await createItem(user, {
-        title,
-        content,
-        source: "chat_input",
-      });
+          ? action.payload.content.trim()
+          : typeof action.payload?.text === "string" && action.payload.text.trim()
+            ? action.payload.text.trim()
+            : text;
+      const settings = await getUserSettingsFromSupabase(user);
+      await createInboxItemsFromBrainDump(user, sourceText, settings);
     }
   }
 
@@ -1378,21 +1594,17 @@ export async function runCommand(user: AuthUser | null, payload: CommandPayload)
 
   if (actions.length === 0) {
     actions.push({
-      type: "create_item",
+      type: "create_items",
       payload: { text },
     });
-    await createItem(user, {
-      title: text.slice(0, 80),
-      content: text,
-      source: "chat_input",
-    });
+    await createInboxItemsFromBrainDump(user, text, settings);
   }
 
   const router: RouterResult = {
     mode:
-      actions.some((action) => action.type === "create_item") && actions.length > 1
+      actions.some((action) => action.type === "create_item" || action.type === "create_items") && actions.length > 1
         ? "hybrid"
-        : actions[0]?.type === "create_item"
+        : actions[0]?.type === "create_item" || actions[0]?.type === "create_items"
           ? "content_capture"
           : "command",
     actions,

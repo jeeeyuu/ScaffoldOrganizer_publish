@@ -6,9 +6,10 @@ import type {
   AppTab,
   AdminVariableRecord,
   BootstrapPayload,
+  CalendarWeekStartsOn,
   ItemRecord,
   ScheduleRecord,
-  SessionRecord,
+  StatusEventRecord,
   UserSettingsRecord,
   WorklogRecord,
 } from "@/lib/types";
@@ -19,10 +20,7 @@ const TABS: Array<{ id: AppTab; label: string }> = [
   { id: "longterm", label: "Long-term" },
   { id: "schedule", label: "Schedule" },
   { id: "calendar", label: "Calendar" },
-  { id: "sessions", label: "Sessions" },
   { id: "worklogs", label: "Work Log" },
-  { id: "settings", label: "Settings" },
-  { id: "admin", label: "Admin" },
   { id: "done", label: "Done" },
 ];
 
@@ -67,8 +65,41 @@ interface ScheduleDraft {
   scheduleDate: string;
 }
 
+interface CalendarDay {
+  date: string;
+  day: number;
+  inMonth: boolean;
+  isWeekend: boolean;
+  schedules: ScheduleRecord[];
+  doing: ItemRecord[];
+  done: ItemRecord[];
+}
+
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function formatDateKey(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function parseDateKey(date: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function todayInputDate() {
-  return new Date().toISOString().slice(0, 10);
+  return formatDateKey(new Date());
+}
+
+function monthInputDate(date: string) {
+  return date.slice(0, 7);
+}
+
+function addDays(date: string, days: number) {
+  const next = parseDateKey(date);
+  next.setDate(next.getDate() + days);
+  return formatDateKey(next);
 }
 
 function downloadText(filename: string, text: string) {
@@ -81,15 +112,15 @@ function downloadText(filename: string, text: string) {
   URL.revokeObjectURL(href);
 }
 
-function buildExportMarkdown(items: ItemRecord[], sessions: SessionRecord[], worklogs: WorklogRecord[]) {
+function buildExportMarkdown(items: ItemRecord[], schedules: ScheduleRecord[], worklogs: WorklogRecord[]) {
   return [
     "# ScaffoldOrganizer Export",
     "",
     "## Items",
     ...items.map((item) => `- [${item.status}] ${item.title}`),
     "",
-    "## Sessions",
-    ...sessions.map((session) => `- ${session.title}`),
+    "## Schedules",
+    ...schedules.map((schedule) => `- ${schedule.scheduleDate} · ${schedule.title}`),
     "",
     "## Worklogs",
     ...worklogs.map((worklog) => `- ${worklog.logDate} · ${worklog.title}`),
@@ -108,7 +139,7 @@ function filterItems(items: ItemRecord[], activeTab: AppTab, query: string) {
         item.horizon !== "long_term",
     );
   } else if (activeTab === "longterm") {
-    scoped = items.filter((item) => item.horizon === "long_term");
+    scoped = items.filter((item) => item.horizon === "long_term" && item.status !== "archived");
   } else if (activeTab === "done") {
     scoped = items.filter((item) => item.status === "done");
   }
@@ -126,27 +157,113 @@ function filterItems(items: ItemRecord[], activeTab: AppTab, query: string) {
   );
 }
 
-function calendarDays(items: ItemRecord[], schedules: ScheduleRecord[], worklogs: WorklogRecord[]) {
-  const map = new Map<string, { date: string; items: ItemRecord[]; schedules: ScheduleRecord[]; worklogs: WorklogRecord[] }>();
-  const ensure = (date: string) => {
-    const key = date.slice(0, 10);
-    if (!map.has(key)) {
-      map.set(key, { date: key, items: [], schedules: [], worklogs: [] });
+function sortItemsForDisplay(items: ItemRecord[]) {
+  return [...items].sort((a, b) => {
+    const doingRank = Number(b.status === "doing") - Number(a.status === "doing");
+    if (doingRank !== 0) {
+      return doingRank;
     }
-    return map.get(key)!;
-  };
 
-  for (const item of items) {
-    ensure(item.scheduledDate || item.dueDate || item.createdAt).items.push(item);
+    const priorityRank = a.priority - b.priority;
+    if (priorityRank !== 0) {
+      return priorityRank;
+    }
+
+    return b.updatedAt.localeCompare(a.updatedAt);
+  });
+}
+
+function itemCalendarDate(item: ItemRecord) {
+  if (item.status === "done" && item.completedAt) {
+    return item.completedAt.slice(0, 10);
   }
-  for (const schedule of schedules) {
-    ensure(schedule.scheduleDate).schedules.push(schedule);
-  }
-  for (const worklog of worklogs) {
-    ensure(worklog.logDate).worklogs.push(worklog);
+  return (item.scheduledDate || item.dueDate || item.updatedAt || item.createdAt).slice(0, 10);
+}
+
+function statusChangeDate(events: StatusEventRecord[], itemId: string, toStatus: ItemRecord["status"]) {
+  return events.find((event) => event.itemId === itemId && event.toStatus === toStatus)?.createdAt.slice(0, 10);
+}
+
+function itemArchivedAt(item: ItemRecord, events: StatusEventRecord[]) {
+  const archivedEvents = events
+    .filter((event) => event.itemId === item.id && event.toStatus === "archived")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  return archivedEvents[0]?.createdAt ?? item.updatedAt;
+}
+
+function doingItemsForDate(items: ItemRecord[], events: StatusEventRecord[], date: string) {
+  const today = todayInputDate();
+  if (date > today) {
+    return [];
   }
 
-  return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
+  return items.filter((item) => {
+    const doingStart = statusChangeDate(events, item.id, "doing");
+    if (!doingStart) {
+      return item.status === "doing" && itemCalendarDate(item) <= date;
+    }
+
+    const doneDate =
+      statusChangeDate(events, item.id, "done") ||
+      (item.status === "done" && item.completedAt ? item.completedAt.slice(0, 10) : null);
+
+    return date >= doingStart && (!doneDate || date < doneDate);
+  });
+}
+
+function weekdayLabels(weekStartsOn: CalendarWeekStartsOn) {
+  const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return weekStartsOn === "monday" ? [...labels.slice(1), labels[0]] : labels;
+}
+
+function buildMonthCalendar(
+  month: string,
+  items: ItemRecord[],
+  schedules: ScheduleRecord[],
+  events: StatusEventRecord[],
+  weekStartsOn: CalendarWeekStartsOn,
+) {
+  const start = parseDateKey(`${month}-01`);
+  const firstVisible = new Date(start);
+  const firstDay = weekStartsOn === "monday" ? 1 : 0;
+  const offset = (firstVisible.getDay() - firstDay + 7) % 7;
+  firstVisible.setDate(firstVisible.getDate() - offset);
+
+  return Array.from({ length: 42 }, (_, index): CalendarDay => {
+    const date = new Date(firstVisible);
+    date.setDate(firstVisible.getDate() + index);
+    const key = formatDateKey(date);
+
+    return {
+      date: key,
+      day: date.getDate(),
+      inMonth: key.startsWith(month),
+      isWeekend: date.getDay() === 0 || date.getDay() === 6,
+      schedules: schedules.filter((schedule) => schedule.scheduleDate === key),
+      doing: doingItemsForDate(items, events, key),
+      done: items.filter((item) => item.status === "done" && itemCalendarDate(item) === key),
+    };
+  });
+}
+
+function scheduledWithinDays(schedules: ScheduleRecord[], startDate: string, days: number) {
+  const endDate = addDays(startDate, days - 1);
+  return schedules
+    .filter((schedule) => schedule.scheduleDate >= startDate && schedule.scheduleDate <= endDate)
+    .sort((a, b) => a.scheduleDate.localeCompare(b.scheduleDate));
+}
+
+function groupSchedulesByDay(schedules: ScheduleRecord[], startDate: string, days: number) {
+  return Array.from({ length: days }, (_, index) => {
+    const date = addDays(startDate, index);
+    return {
+      date,
+      schedules: schedules
+        .filter((schedule) => schedule.scheduleDate === date)
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    };
+  });
 }
 
 function priorityLabel(priority: number) {
@@ -181,13 +298,11 @@ export function AppShell({ initialData }: Props) {
   const [filter, setFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
-  const [brainDump, setBrainDump] = useState(initialData.sessions[0]?.rawText ?? "");
-  const [structuredOutput, setStructuredOutput] = useState(initialData.sessions[0]?.structuredText ?? "");
-  const [sessionTitle, setSessionTitle] = useState(initialData.sessions[0]?.title ?? "");
   const [commandInput, setCommandInput] = useState("");
-  const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authDraft, setAuthDraft] = useState<AuthDraft>({ email: "", password: "" });
+  const [selectedDate, setSelectedDate] = useState(todayInputDate());
+  const [calendarMonth, setCalendarMonth] = useState(monthInputDate(todayInputDate()));
   const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft>({
     title: "",
     notes: "",
@@ -275,8 +390,28 @@ export function AppShell({ initialData }: Props) {
     setSettingsDraft(bootstrap.settings);
   }, [bootstrap.settings]);
 
-  const visibleItems = filterItems(bootstrap.items, activeTab, filter);
-  const calendarEntries = calendarDays(bootstrap.items, bootstrap.schedules, bootstrap.worklogs);
+  const visibleItems = sortItemsForDisplay(filterItems(bootstrap.items, activeTab, filter));
+  const filteredOutCount =
+    activeTab === "worklogs" ||
+    activeTab === "schedule" ||
+    activeTab === "calendar" ||
+    activeTab === "settings" ||
+    activeTab === "admin"
+      ? 0
+      : filterItems(bootstrap.items, activeTab, "").length - visibleItems.length;
+  const monthDays = buildMonthCalendar(
+    calendarMonth,
+    bootstrap.items,
+    bootstrap.schedules,
+    bootstrap.events,
+    bootstrap.settings.calendarWeekStartsOn,
+  );
+  const calendarWeekdays = weekdayLabels(bootstrap.settings.calendarWeekStartsOn);
+  const upcomingSchedules = scheduledWithinDays(bootstrap.schedules, selectedDate, 7);
+  const upcomingScheduleGroups = groupSchedulesByDay(bootstrap.schedules, selectedDate, 7);
+  const archivedItems = bootstrap.items
+    .filter((item) => item.status === "archived")
+    .sort((a, b) => itemArchivedAt(b, bootstrap.events).localeCompare(itemArchivedAt(a, bootstrap.events)));
 
   function toggleSelection(itemId: string) {
     setSelectedIds((current) =>
@@ -284,62 +419,6 @@ export function AppShell({ initialData }: Props) {
         ? current.filter((id) => id !== itemId)
         : [...current, itemId],
     );
-  }
-
-  function loadSessionIntoEditor(session: SessionRecord) {
-    setBrainDump(session.rawText);
-    setStructuredOutput(session.structuredText);
-    setSessionTitle(session.title);
-    setFeedback(`Loaded session ${session.title}`, "success");
-  }
-
-  async function saveSessionEditor() {
-    await runBusy("saveSession", async () => {
-      setFeedback("Saving session…", "busy");
-      const response = await fetch("/api/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: sessionTitle || "Manual session",
-          rawText: brainDump,
-          structuredText: structuredOutput,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to save session");
-      }
-
-      await refreshBootstrap();
-      setFeedback("Session saved", "success");
-    }).catch((error: unknown) => {
-      setFeedback(error instanceof Error ? error.message : "Failed to save session", "error");
-    });
-  }
-
-  async function structureBrainDump() {
-    await runBusy("structureBrainDump", async () => {
-      setFeedback("Structuring brain dump…", "busy");
-      const response = await fetch("/api/sessions/structure", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: sessionTitle || "Brain dump",
-          rawText: brainDump,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to structure brain dump");
-      }
-
-      const result = await response.json();
-      setStructuredOutput(result.structuredText);
-      await refreshBootstrap();
-      setFeedback(`Structured into ${result.items.length} item(s)`, "success");
-    }).catch((error: unknown) => {
-      setFeedback(error instanceof Error ? error.message : "Failed to structure brain dump", "error");
-    });
   }
 
   async function sendCommand() {
@@ -400,6 +479,29 @@ export function AppShell({ initialData }: Props) {
       await refreshBootstrap();
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to update status", "error");
+    });
+  }
+
+  async function updateItemHorizon(itemId: string, horizon: ItemRecord["horizon"]) {
+    await runBusy(`horizon-${itemId}`, async () => {
+      const response = await fetch("/api/items", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: itemId,
+          horizon,
+          status: "todo",
+          completedAt: null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update horizon");
+      }
+
+      await refreshBootstrap();
+    }).catch((error: unknown) => {
+      setFeedback(error instanceof Error ? error.message : "Failed to update horizon", "error");
     });
   }
 
@@ -468,7 +570,6 @@ export function AppShell({ initialData }: Props) {
         savedId: null,
         statusText: "Draft — not saved",
       });
-      setActiveTab("worklogs");
       setFeedback("Draft ready", "success");
     }).catch((error: unknown) => {
       setFeedback(error instanceof Error ? error.message : "Failed to generate worklog", "error");
@@ -539,6 +640,7 @@ export function AppShell({ initialData }: Props) {
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     await refreshBootstrap();
+    setActiveTab("inbox");
     setFeedback("Logged out", "success");
   }
 
@@ -586,7 +688,10 @@ export function AppShell({ initialData }: Props) {
       const response = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settingsDraft),
+        body: JSON.stringify({
+          ...settingsDraft,
+          worklogExportPath: "",
+        }),
       });
 
       if (!response.ok) {
@@ -620,28 +725,37 @@ export function AppShell({ initialData }: Props) {
     });
   }
 
-  const filteredOutCount =
-    activeTab === "sessions" || activeTab === "worklogs" || activeTab === "schedule" || activeTab === "calendar" || activeTab === "settings" || activeTab === "admin"
-      ? 0
-      : filterItems(bootstrap.items, activeTab, "").length - visibleItems.length;
-
   return (
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <h1>ScaffoldOrganizer 2.0</h1>
+          <h1>ScaffoldOrganizer</h1>
           <p className="feedback" data-level={feedbackLevel}>{feedback}</p>
           <p className="meta">
-            {bootstrap.user ? `${bootstrap.settings.nickname || bootstrap.user.email}` : "Signed out"} · {bootstrap.usingSupabase ? "Supabase" : "Demo"}
+            {bootstrap.user ? `${bootstrap.settings.nickname || bootstrap.user.email}` : "Signed out"}
           </p>
         </div>
-        <div className="status-strip">
-          <FeedbackBadge label="Backend" value={bootstrap.status.backend} />
-          <FeedbackBadge label="AI" value={bootstrap.status.ai} />
-          {bootstrap.user ? (
+        {bootstrap.user ? (
+          <div className="top-actions">
+            <button
+              className="export-action"
+              onClick={() =>
+                downloadText(
+                  `scaffold-export-${new Date().toISOString().slice(0, 10)}.md`,
+                  buildExportMarkdown(bootstrap.items, bootstrap.schedules, bootstrap.worklogs),
+                )
+              }
+              disabled={busyKey !== null}
+            >
+              Download
+            </button>
+            <button onClick={() => setActiveTab("settings")} disabled={busyKey !== null}>Settings</button>
+            {bootstrap.user.isAdmin ? (
+              <button onClick={() => setActiveTab("admin")} disabled={busyKey !== null}>Admin</button>
+            ) : null}
             <button onClick={() => void logout()} disabled={busyKey !== null}>Logout</button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </header>
 
       {!bootstrap.user ? (
@@ -668,489 +782,482 @@ export function AppShell({ initialData }: Props) {
             </button>
           </div>
         </section>
-      ) : null}
+      ) : (
+        <>
+          <section className="workspace">
+            <nav className="tabs">
+              {TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  className={activeTab === tab.id ? "active" : undefined}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
 
-      <section className="toolbar">
-        <button onClick={() => void saveSessionEditor()} disabled={busyKey !== null}>
-          Save
-        </button>
-        <button
-          onClick={() => {
-            if (bootstrap.sessions.length === 0) {
-              setFeedback("No saved sessions yet.", "info");
-              return;
-            }
-            if (bootstrap.sessions.length === 1) {
-              loadSessionIntoEditor(bootstrap.sessions[0]);
-              return;
-            }
-            setSessionPickerOpen(true);
-          }}
-          disabled={busyKey !== null}
-        >
-          Load
-        </button>
-        <button
-          onClick={() => {
-            setBrainDump("");
-            setStructuredOutput("");
-            setSessionTitle("");
-            setWorklogDraft((current) => ({
-              ...current,
-              contentMd: "",
-              logDate: null,
-              title: null,
-              savedId: null,
-              statusText: "",
-            }));
-            setFeedback("Editor state cleared", "success");
-          }}
-          disabled={busyKey !== null}
-        >
-          Reset
-        </button>
-        <button
-          onClick={() =>
-            downloadText(
-              `scaffold-export-${new Date().toISOString().slice(0, 10)}.md`,
-              buildExportMarkdown(bootstrap.items, bootstrap.sessions, bootstrap.worklogs),
-            )
-          }
-          disabled={busyKey !== null}
-        >
-          Export
-        </button>
-        <button onClick={() => void generateWorklog()} disabled={busyKey !== null}>
-          Work Log
-        </button>
-      </section>
+            <section className="panel">
+              {activeTab !== "worklogs" && activeTab !== "schedule" && activeTab !== "calendar" && activeTab !== "settings" && activeTab !== "admin" ? (
+                <>
+                  <div className="panel-toolbar">
+                    <input
+                      type="search"
+                      placeholder="Filter items (title, project, tag)…"
+                      value={filter}
+                      onChange={(event) => setFilter(event.target.value)}
+                    />
+                    <span className="meta">
+                      {filteredOutCount > 0
+                        ? `${visibleItems.length} shown / ${visibleItems.length + filteredOutCount} total`
+                        : `${visibleItems.length} item${visibleItems.length === 1 ? "" : "s"}`}
+                    </span>
+                  </div>
 
-      <section className="workspace">
-        <nav className="tabs">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              className={activeTab === tab.id ? "active" : undefined}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
+                  <div className="item-grid">
+                    {visibleItems.map((item) => {
+                      const selected = selectedIds.includes(item.id);
+                      const editing = editingDraft?.id === item.id;
 
-        <section className="panel">
-          {activeTab !== "sessions" && activeTab !== "worklogs" && activeTab !== "schedule" && activeTab !== "calendar" && activeTab !== "settings" && activeTab !== "admin" ? (
-            <>
-              <div className="panel-toolbar">
-                <input
-                  type="search"
-                  placeholder="Filter items (title, project, tag)…"
-                  value={filter}
-                  onChange={(event) => setFilter(event.target.value)}
-                />
-                <span className="meta">
-                  {filteredOutCount > 0
-                    ? `${visibleItems.length} shown / ${visibleItems.length + filteredOutCount} total`
-                    : `${visibleItems.length} item${visibleItems.length === 1 ? "" : "s"}`}
-                </span>
-              </div>
-
-              <div className="item-grid">
-                {visibleItems.map((item) => {
-                  const selected = selectedIds.includes(item.id);
-                  const editing = editingDraft?.id === item.id;
-
-                  return (
-                    <article
-                      key={item.id}
-                      className={`item-card status-${item.status} priority-${item.priority}`}
-                    >
-                      {editing && editingDraft ? (
-                        <>
-                          <header className="card-head">
-                            <input
-                              className="edit-title"
-                              value={editingDraft.title}
-                              onChange={(event) =>
-                                setEditingDraft({
-                                  ...editingDraft,
-                                  title: event.target.value,
-                                })
-                              }
-                            />
-                          </header>
-                          <div className="edit-priority-row">
-                            {[1, 2, 3, 4, 5].map((priority) => (
-                              <button
-                                key={priority}
-                                type="button"
-                                className={`priority-btn${editingDraft.priority === priority ? " active" : ""}`}
-                                data-priority={priority}
-                                onClick={() =>
+                      return (
+                        <article
+                          key={item.id}
+                          className={`item-card status-${item.status} priority-${item.priority}`}
+                        >
+                          {editing && editingDraft ? (
+                            <>
+                              <header className="card-head">
+                                <input
+                                  className="edit-title"
+                                  value={editingDraft.title}
+                                  onChange={(event) =>
+                                    setEditingDraft({
+                                      ...editingDraft,
+                                      title: event.target.value,
+                                    })
+                                  }
+                                />
+                              </header>
+                              <div className="edit-priority-row">
+                                {[1, 2, 3, 4, 5].map((priority) => (
+                                  <button
+                                    key={priority}
+                                    type="button"
+                                    className={`priority-btn${editingDraft.priority === priority ? " active" : ""}`}
+                                    data-priority={priority}
+                                    onClick={() =>
+                                      setEditingDraft({
+                                        ...editingDraft,
+                                        priority,
+                                      })
+                                    }
+                                  >
+                                    P{priority}
+                                  </button>
+                                ))}
+                              </div>
+                              <textarea
+                                className="edit-content"
+                                rows={3}
+                                value={editingDraft.content}
+                                onChange={(event) =>
                                   setEditingDraft({
                                     ...editingDraft,
-                                    priority,
+                                    content: event.target.value,
                                   })
                                 }
-                              >
-                                P{priority}
-                              </button>
-                            ))}
-                          </div>
-                          <textarea
-                            className="edit-content"
-                            rows={3}
-                            value={editingDraft.content}
-                            onChange={(event) =>
-                              setEditingDraft({
-                                ...editingDraft,
-                                content: event.target.value,
-                              })
-                            }
-                          />
-                          <footer className="card-actions">
-                            <button onClick={() => void saveEditingDraft()}>Save</button>
-                            <button onClick={() => setEditingDraft(null)}>Cancel</button>
-                            <button className="danger" onClick={() => void removeItem(item.id)}>
-                              Delete
-                            </button>
-                          </footer>
-                        </>
-                      ) : (
-                        <>
-                          <header className="card-head">
-                            <input
-                              type="checkbox"
-                              checked={selected}
-                              onChange={() => toggleSelection(item.id)}
-                            />
-                            <h3 title={`${item.itemType} · ${item.horizon}`}>{item.title}</h3>
-                            {item.status === "doing" ? <span className="status-pill">DOING</span> : null}
-                            <span className={`priority-chip p${item.priority}`} title={priorityLabel(item.priority)}>
-                              P{item.priority}
-                            </span>
-                          </header>
-                          {item.content && item.content !== item.title ? (
-                            <p className="card-body">{item.content}</p>
-                          ) : null}
-                          <footer className="card-actions">
-                            {item.status === "inbox" ? (
-                              <button onClick={() => void updateItemStatus(item.id, "todo")}>→ Active</button>
-                            ) : null}
-                            {item.status === "inbox" || item.status === "todo" ? (
-                              <button onClick={() => void updateItemStatus(item.id, "doing")}>Doing</button>
-                            ) : null}
-                            {item.status === "doing" ? (
-                              <button onClick={() => void updateItemStatus(item.id, "todo")}>Pause</button>
-                            ) : null}
-                            {item.status !== "done" && item.status !== "archived" ? (
-                              <button onClick={() => void updateItemStatus(item.id, "done")}>Done</button>
-                            ) : null}
-                            {item.status !== "archived" ? (
-                              <button onClick={() => void updateItemStatus(item.id, "archived")}>🗑</button>
-                            ) : null}
-                            <button
-                              className="icon-btn"
-                              onClick={() =>
-                                setEditingDraft({
-                                  id: item.id,
-                                  title: item.title,
-                                  content: item.content,
-                                  priority: item.priority,
-                                })
-                              }
-                            >
-                              ✎
-                            </button>
-                          </footer>
-                        </>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            </>
-          ) : null}
-
-          {activeTab === "schedule" ? (
-            <div className="split">
-              <div className="schedule-form">
-                <input
-                  placeholder="Schedule title"
-                  value={scheduleDraft.title}
-                  onChange={(event) => setScheduleDraft({ ...scheduleDraft, title: event.target.value })}
-                />
-                <input
-                  type="date"
-                  value={scheduleDraft.scheduleDate}
-                  onChange={(event) => setScheduleDraft({ ...scheduleDraft, scheduleDate: event.target.value })}
-                />
-                <textarea
-                  placeholder="Notes"
-                  value={scheduleDraft.notes}
-                  onChange={(event) => setScheduleDraft({ ...scheduleDraft, notes: event.target.value })}
-                />
-                <button onClick={() => void createScheduleEntry()} disabled={busyKey !== null || !scheduleDraft.title.trim()}>
-                  Add Schedule
-                </button>
-              </div>
-              <div className="list">
-                {bootstrap.schedules.map((schedule) => (
-                  <div key={schedule.id} className="list-entry schedule-entry">
-                    <strong>{schedule.scheduleDate} · {schedule.title}</strong>
-                    {schedule.notes ? <p>{schedule.notes}</p> : null}
-                    <div className="card-actions">
-                      <button className="danger" onClick={() => void removeSchedule(schedule.id)}>Delete</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {activeTab === "calendar" ? (
-            <div className="calendar-grid">
-              {calendarEntries.map((day) => (
-                <article key={day.date} className="calendar-day">
-                  <h3>{day.date}</h3>
-                  {day.schedules.map((schedule) => (
-                    <p key={schedule.id}><span className="mini-chip sky">S</span>{schedule.title}</p>
-                  ))}
-                  {day.items.map((item) => (
-                    <p key={item.id}><span className="mini-chip gray">T</span>{item.title}</p>
-                  ))}
-                  {day.worklogs.map((worklog) => (
-                    <p key={worklog.id}><span className="mini-chip mint">W</span>{worklog.title}</p>
-                  ))}
-                </article>
-              ))}
-            </div>
-          ) : null}
-
-          {activeTab === "sessions" ? (
-            <div className="split">
-              <div className="editor-column">
-                <textarea
-                  placeholder="Brain dump"
-                  value={brainDump}
-                  onChange={(event) => setBrainDump(event.target.value)}
-                />
-                <textarea
-                  readOnly
-                  placeholder="Structured markdown"
-                  value={structuredOutput}
-                />
-              </div>
-              <div className="stack">
-                <input
-                  placeholder="Session title"
-                  value={sessionTitle}
-                  onChange={(event) => setSessionTitle(event.target.value)}
-                />
-                <button onClick={() => void structureBrainDump()} disabled={busyKey !== null}>
-                  Structure Brain Dump
-                </button>
-                <div className="list">
-                  {bootstrap.sessions.map((session) => (
-                    <div key={session.id} className="list-entry">
-                      <strong>{session.title}</strong>
-                      <div className="meta">{session.updatedAt}</div>
-                      <div className="card-actions">
-                        <button onClick={() => loadSessionIntoEditor(session)}>Load</button>
-                        <button
-                          onClick={() =>
-                            downloadText(
-                              `${session.title.replaceAll(" ", "-").toLowerCase()}.md`,
-                              session.structuredText || session.rawText,
-                            )
-                          }
-                        >
-                          Export
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {activeTab === "worklogs" ? (
-            <div className="split">
-              <div className="editor-column">
-                <textarea
-                  placeholder="Worklog draft"
-                  value={worklogDraft.contentMd}
-                  onChange={(event) =>
-                    setWorklogDraft((current) => ({
-                      ...current,
-                      contentMd: event.target.value,
-                      savedId: null,
-                      statusText: "Draft — edited",
-                    }))
-                  }
-                />
-                <div className="card-actions">
-                  <button onClick={() => void saveWorklog()} disabled={busyKey !== null}>
-                    Save
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (!worklogDraft.contentMd) {
-                        return;
-                      }
-                      downloadText(
-                        `${(worklogDraft.title ?? "worklog").replaceAll(" ", "-").toLowerCase()}.md`,
-                        worklogDraft.contentMd,
+                              />
+                              <footer className="card-actions">
+                                <button onClick={() => void saveEditingDraft()}>Save</button>
+                                <button onClick={() => setEditingDraft(null)}>Cancel</button>
+                                <button className="danger" onClick={() => void removeItem(item.id)}>
+                                  Delete
+                                </button>
+                              </footer>
+                            </>
+                          ) : (
+                            <>
+                              <header className="card-head">
+                                <input
+                                  className="select-box"
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={() => toggleSelection(item.id)}
+                                />
+                                <h3 title={`${item.itemType} · ${item.horizon}`}>{item.title}</h3>
+                                {item.status === "doing" ? <span className="status-pill">DOING</span> : null}
+                                <span className={`priority-chip p${item.priority}`} title={priorityLabel(item.priority)}>
+                                  P{item.priority}
+                                </span>
+                              </header>
+                              {item.content && item.content !== item.title ? (
+                                <p className="card-body">{item.content}</p>
+                              ) : null}
+                              <footer className="card-actions">
+                                {item.status === "inbox" && item.horizon !== "long_term" ? (
+                                  <button onClick={() => void updateItemStatus(item.id, "todo")}>Active</button>
+                                ) : null}
+                                {item.status === "inbox" || item.status === "todo" ? (
+                                  <button onClick={() => void updateItemStatus(item.id, "doing")}>Doing</button>
+                                ) : null}
+                                {item.status === "doing" ? (
+                                  <button onClick={() => void updateItemStatus(item.id, "todo")}>Pause</button>
+                                ) : null}
+                                {item.status !== "done" && item.status !== "archived" && item.horizon !== "long_term" ? (
+                                  <button onClick={() => void updateItemHorizon(item.id, "long_term")}>Long-term</button>
+                                ) : null}
+                                {item.status !== "done" && item.status !== "archived" && item.horizon === "long_term" ? (
+                                  <button onClick={() => void updateItemHorizon(item.id, "now")}>Active</button>
+                                ) : null}
+                                {item.status !== "done" && item.status !== "archived" ? (
+                                  <button onClick={() => void updateItemStatus(item.id, "done")}>Done</button>
+                                ) : null}
+                                {item.status !== "archived" ? (
+                                  <button
+                                    className="trash-btn"
+                                    title="Archive"
+                                    aria-label="Archive"
+                                    onClick={() => void updateItemStatus(item.id, "archived")}
+                                  >
+                                    🗑
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="icon-btn"
+                                  onClick={() =>
+                                    setEditingDraft({
+                                      id: item.id,
+                                      title: item.title,
+                                      content: item.content,
+                                      priority: item.priority,
+                                    })
+                                  }
+                                >
+                                  Edit
+                                </button>
+                              </footer>
+                            </>
+                          )}
+                        </article>
                       );
-                    }}
-                    disabled={busyKey !== null}
-                  >
-                    Save & Export
-                  </button>
-                  <span className="meta">{worklogDraft.statusText}</span>
-                </div>
-              </div>
-              <div className="list">
-                {bootstrap.worklogs.map((worklog) => (
-                  <div
-                    key={worklog.id}
-                    className="list-entry"
-                    onClick={() =>
-                      setWorklogDraft({
-                        logDate: worklog.logDate,
-                        title: worklog.title,
-                        contentMd: worklog.contentMd,
-                        contextSummary: worklog.sourceSummary,
-                        savedId: worklog.id,
-                        statusText: `Saved #${worklog.id}`,
-                      })
-                    }
-                  >
-                    <strong>{worklog.title}</strong>
-                    <div className="meta">{worklog.createdAt}</div>
+                    })}
                   </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+                </>
+              ) : null}
 
-          {activeTab === "settings" ? (
-            <div className="settings-panel">
-              <label>
-                Nickname
-                <input
-                  value={settingsDraft.nickname}
-                  onChange={(event) => setSettingsDraft({ ...settingsDraft, nickname: event.target.value })}
-                />
-              </label>
-              <label>
-                Worklog export path
-                <input
-                  value={settingsDraft.worklogExportPath}
-                  onChange={(event) => setSettingsDraft({ ...settingsDraft, worklogExportPath: event.target.value })}
-                />
-              </label>
-              <label>
-                Personal prompt
-                <textarea
-                  value={settingsDraft.customPrompt}
-                  onChange={(event) => setSettingsDraft({ ...settingsDraft, customPrompt: event.target.value })}
-                />
-              </label>
-              <button onClick={() => void saveSettings()} disabled={busyKey !== null}>Save Settings</button>
-            </div>
-          ) : null}
-
-          {activeTab === "admin" ? (
-            bootstrap.user?.isAdmin ? (
-              <div className="split">
-                <div className="settings-panel">
-                  <input
-                    placeholder="Variable key"
-                    value={adminDraft.key ?? ""}
-                    onChange={(event) => setAdminDraft({ ...adminDraft, key: event.target.value })}
-                  />
-                  <textarea
-                    placeholder="Value"
-                    value={adminDraft.value ?? ""}
-                    onChange={(event) => setAdminDraft({ ...adminDraft, value: event.target.value })}
-                  />
-                  <input
-                    placeholder="Description"
-                    value={adminDraft.description ?? ""}
-                    onChange={(event) => setAdminDraft({ ...adminDraft, description: event.target.value })}
-                  />
-                  <button onClick={() => void saveAdminVariable()} disabled={busyKey !== null || !adminDraft.key}>
-                    Save Variable
-                  </button>
+              {activeTab === "schedule" ? (
+                <div className="split">
+                  <div className="schedule-form">
+                    <input
+                      placeholder="Schedule title"
+                      value={scheduleDraft.title}
+                      onChange={(event) => setScheduleDraft({ ...scheduleDraft, title: event.target.value })}
+                    />
+                    <input
+                      type="date"
+                      value={scheduleDraft.scheduleDate}
+                      onChange={(event) => setScheduleDraft({ ...scheduleDraft, scheduleDate: event.target.value })}
+                    />
+                    <textarea
+                      placeholder="Notes"
+                      value={scheduleDraft.notes}
+                      onChange={(event) => setScheduleDraft({ ...scheduleDraft, notes: event.target.value })}
+                    />
+                    <button onClick={() => void createScheduleEntry()} disabled={busyKey !== null || !scheduleDraft.title.trim()}>
+                      Add Schedule
+                    </button>
+                  </div>
+                  <div className="list">
+                    {bootstrap.schedules.map((schedule) => (
+                      <div key={schedule.id} className="list-entry schedule-entry">
+                        <strong>{schedule.scheduleDate} · {schedule.title}</strong>
+                        {schedule.notes ? <p>{schedule.notes}</p> : null}
+                        <div className="card-actions">
+                          <button className="danger" onClick={() => void removeSchedule(schedule.id)}>Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="list">
-                  {bootstrap.adminVariables.map((entry) => (
-                    <div key={entry.id} className="list-entry" onClick={() => setAdminDraft(entry)}>
-                      <strong>{entry.key}</strong>
-                      <div className="meta">{entry.description}</div>
-                      <p>{entry.value}</p>
+              ) : null}
+
+              {activeTab === "calendar" ? (
+                <div className="calendar-page">
+                  <div className="calendar-toolbar">
+                    <input
+                      type="month"
+                      value={calendarMonth}
+                      onChange={(event) => setCalendarMonth(event.target.value)}
+                    />
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(event) => {
+                        setSelectedDate(event.target.value);
+                        setCalendarMonth(monthInputDate(event.target.value));
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const today = todayInputDate();
+                        setSelectedDate(today);
+                        setCalendarMonth(monthInputDate(today));
+                      }}
+                    >
+                      Today
+                    </button>
+                  </div>
+                  <div className="month-calendar">
+                    {calendarWeekdays.map((day) => (
+                      <div
+                        key={day}
+                        className={`calendar-weekday${day === "Sun" || day === "Sat" ? " weekend" : ""}`}
+                      >
+                        {day}
+                      </div>
+                    ))}
+                    {monthDays.map((day) => (
+                      <button
+                        key={day.date}
+                        className={`month-day${day.inMonth ? "" : " outside"}${day.isWeekend ? " weekend" : ""}${day.date === selectedDate ? " selected" : ""}`}
+                        onClick={() => {
+                          setSelectedDate(day.date);
+                          setCalendarMonth(monthInputDate(day.date));
+                        }}
+                      >
+                        <div className="month-day-head">
+                          <strong>{day.day}</strong>
+                          <span className="day-counters">
+                            <span>● {day.doing.length}</span>
+                            <span>✓ {day.done.length}</span>
+                          </span>
+                        </div>
+                        <div className="calendar-events">
+                          {day.schedules.slice(0, 3).map((schedule) => (
+                            <span key={schedule.id} className="calendar-event" title={schedule.title}>
+                              {schedule.title}
+                            </span>
+                          ))}
+                          {day.schedules.length > 3 ? (
+                            <span className="calendar-more">+{day.schedules.length - 3} more</span>
+                          ) : null}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <section className="upcoming-panel">
+                    <h2>{selectedDate}부터 7일 일정</h2>
+                    {upcomingSchedules.length ? (
+                      upcomingScheduleGroups.map((group) => (
+                        <section key={group.date} className="upcoming-day">
+                          <h3>{group.date}</h3>
+                          {group.schedules.length ? (
+                            group.schedules.map((schedule) => (
+                              <article key={schedule.id} className="list-entry">
+                                <strong>{schedule.title}</strong>
+                                {schedule.notes ? <p>{schedule.notes}</p> : null}
+                              </article>
+                            ))
+                          ) : (
+                            <p className="meta">예정된 일정 없음</p>
+                          )}
+                        </section>
+                      ))
+                    ) : (
+                      <p className="meta">선택한 날짜부터 7일간 예정된 일정이 없습니다.</p>
+                    )}
+                  </section>
+                </div>
+              ) : null}
+
+              {activeTab === "worklogs" ? (
+                <div className="split">
+                  <div className="editor-column">
+                    <div className="card-actions top-actions-inline">
+                      <button onClick={() => void generateWorklog()} disabled={busyKey !== null}>
+                        Generate Draft
+                      </button>
+                      <span className="meta">{worklogDraft.statusText}</span>
                     </div>
-                  ))}
+                    <textarea
+                      className="worklog-editor"
+                      placeholder="Worklog draft"
+                      value={worklogDraft.contentMd}
+                      onChange={(event) =>
+                        setWorklogDraft((current) => ({
+                          ...current,
+                          contentMd: event.target.value,
+                          savedId: null,
+                          statusText: "Draft — edited",
+                        }))
+                      }
+                    />
+                    <div className="card-actions">
+                      <button onClick={() => void saveWorklog()} disabled={busyKey !== null}>
+                        Save
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!worklogDraft.contentMd) {
+                            return;
+                          }
+                          downloadText(
+                            `${(worklogDraft.title ?? "worklog").replaceAll(" ", "-").toLowerCase()}.md`,
+                            worklogDraft.contentMd,
+                          );
+                        }}
+                        disabled={busyKey !== null}
+                      >
+                        Download
+                      </button>
+                    </div>
+                  </div>
+                  <div className="list">
+                    {bootstrap.worklogs.map((worklog) => (
+                      <div
+                        key={worklog.id}
+                        className="list-entry"
+                        onClick={() =>
+                          setWorklogDraft({
+                            logDate: worklog.logDate,
+                            title: worklog.title,
+                            contentMd: worklog.contentMd,
+                            contextSummary: worklog.sourceSummary,
+                            savedId: worklog.id,
+                            statusText: `Saved #${worklog.id}`,
+                          })
+                        }
+                      >
+                        <strong>{worklog.title}</strong>
+                        <div className="meta">{worklog.createdAt}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <p className="meta">Admin access required.</p>
-            )
-          ) : null}
+              ) : null}
 
-          <p className="panel-footnote">
-            Prompt roles: {bootstrap.prompts.map((prompt) => `${prompt.role} (${prompt.model})`).join(", ")}
-          </p>
-        </section>
-      </section>
-
-      <footer className="command-bar">
-        <textarea
-          placeholder="Capture a thought, create a task, or issue a command."
-          value={commandInput}
-          onChange={(event) => setCommandInput(event.target.value)}
-          onKeyDown={(event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-              event.preventDefault();
-              void sendCommand();
-            }
-          }}
-        />
-        <button onClick={() => void sendCommand()} disabled={busyKey !== null || !commandInput.trim()}>
-          Send
-        </button>
-      </footer>
-
-      {sessionPickerOpen ? (
-        <div className="modal" onClick={() => setSessionPickerOpen(false)}>
-          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
-            <header className="modal-head">
-              <h2>Load Session</h2>
-              <button className="modal-close" onClick={() => setSessionPickerOpen(false)}>
-                ×
-              </button>
-            </header>
-            <p className="meta">Click an entry to restore raw and structured text.</p>
-            <div className="list">
-              {bootstrap.sessions.map((session) => (
-                <div
-                  key={session.id}
-                  className="list-entry"
-                  onClick={() => {
-                    loadSessionIntoEditor(session);
-                    setSessionPickerOpen(false);
-                  }}
-                >
-                  <strong>{session.title}</strong>
-                  <div className="meta">{session.updatedAt}</div>
+              {activeTab === "settings" ? (
+                <div className="settings-panel">
+                  <label>
+                    Nickname
+                    <input
+                      value={settingsDraft.nickname}
+                      onChange={(event) => setSettingsDraft({ ...settingsDraft, nickname: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Personal prompt
+                    <textarea
+                      value={settingsDraft.customPrompt}
+                      onChange={(event) => setSettingsDraft({ ...settingsDraft, customPrompt: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Calendar week starts on
+                    <select
+                      value={settingsDraft.calendarWeekStartsOn}
+                      onChange={(event) =>
+                        setSettingsDraft({
+                          ...settingsDraft,
+                          calendarWeekStartsOn: event.target.value as CalendarWeekStartsOn,
+                        })
+                      }
+                    >
+                      <option value="monday">Monday</option>
+                      <option value="sunday">Sunday</option>
+                    </select>
+                  </label>
+                  <div className="status-strip settings-status">
+                    <FeedbackBadge label="Backend" value={bootstrap.status.backend} />
+                    <FeedbackBadge label="AI" value={bootstrap.status.ai} />
+                    <span className="dot idle">Storage: {bootstrap.usingSupabase ? "Supabase" : "Demo"}</span>
+                  </div>
+                  <div className="card-actions">
+                    <button onClick={() => void saveSettings()} disabled={busyKey !== null}>Save Settings</button>
+                    <button onClick={() => window.open("/help", "_blank", "noopener,noreferrer")}>
+                      User Guide
+                    </button>
+                  </div>
+                  <section className="archive-list">
+                    <h2>Archived items</h2>
+                    <p className="meta">Archived items are permanently deleted after 10 days.</p>
+                    {archivedItems.length ? (
+                      archivedItems.map((item) => (
+                        <article key={item.id} className="list-entry archive-entry">
+                          <div>
+                            <strong>{item.title}</strong>
+                            <p className="meta">Archived at {itemArchivedAt(item, bootstrap.events).slice(0, 10)}</p>
+                          </div>
+                          <button onClick={() => void updateItemStatus(item.id, "inbox")} disabled={busyKey !== null}>
+                            Restore
+                          </button>
+                        </article>
+                      ))
+                    ) : (
+                      <p className="meta">No archived items.</p>
+                    )}
+                  </section>
+                  <details className="app-info">
+                    <summary>App info</summary>
+                    <p className="meta">Prompt roles: {bootstrap.prompts.map((prompt) => `${prompt.role} (${prompt.model})`).join(", ")}</p>
+                  </details>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : null}
+              ) : null}
+
+              {activeTab === "admin" && bootstrap.user?.isAdmin ? (
+                <div className="split">
+                  <div className="settings-panel">
+                    <input
+                      placeholder="Variable key"
+                      value={adminDraft.key ?? ""}
+                      onChange={(event) => setAdminDraft({ ...adminDraft, key: event.target.value })}
+                    />
+                    <textarea
+                      placeholder="Value"
+                      value={adminDraft.value ?? ""}
+                      onChange={(event) => setAdminDraft({ ...adminDraft, value: event.target.value })}
+                    />
+                    <input
+                      placeholder="Description"
+                      value={adminDraft.description ?? ""}
+                      onChange={(event) => setAdminDraft({ ...adminDraft, description: event.target.value })}
+                    />
+                    <button onClick={() => void saveAdminVariable()} disabled={busyKey !== null || !adminDraft.key}>
+                      Save Variable
+                    </button>
+                  </div>
+                  <div className="list">
+                    {bootstrap.adminVariables.map((entry) => (
+                      <div key={entry.id} className="list-entry" onClick={() => setAdminDraft(entry)}>
+                        <strong>{entry.key}</strong>
+                        <div className="meta">{entry.description}</div>
+                        <p>{entry.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          </section>
+
+          <footer className="command-bar">
+            <textarea
+              placeholder="Paste a brain dump, capture a thought, or issue a command."
+              value={commandInput}
+              onChange={(event) => setCommandInput(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  void sendCommand();
+                }
+              }}
+            />
+            <button onClick={() => void sendCommand()} disabled={busyKey !== null || !commandInput.trim()}>
+              Send
+            </button>
+          </footer>
+        </>
+      )}
     </main>
   );
 }

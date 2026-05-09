@@ -8,6 +8,7 @@ const settingsSchema = z.object({
   nickname: z.string().default(""),
   worklogExportPath: z.string().default(""),
   customPrompt: z.string().default(""),
+  calendarWeekStartsOn: z.enum(["monday", "sunday"]).default("monday"),
 });
 
 export async function POST(request: NextRequest) {

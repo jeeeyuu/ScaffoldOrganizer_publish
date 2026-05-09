@@ -7,6 +7,19 @@ import type { AuthUser } from "@/lib/types";
 export const ACCESS_COOKIE = "so_access_token";
 export const REFRESH_COOKIE = "so_refresh_token";
 
+export function isDevPreviewEnabled() {
+  return process.env.NODE_ENV === "development" && process.env.DEV_PREVIEW_AUTH_BYPASS !== "false";
+}
+
+function devPreviewUser(): AuthUser {
+  return {
+    id: "00000000-0000-4000-8000-000000000000",
+    email: "dev-preview@local",
+    isAdmin: true,
+    isPreview: true,
+  };
+}
+
 function adminEmails() {
   return (process.env.ADMIN_EMAILS ?? "")
     .split(",")
@@ -38,13 +51,14 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       id: "demo-user",
       email: "demo@local",
       isAdmin: true,
+      isPreview: process.env.NODE_ENV === "development",
     };
   }
 
   const cookieStore = await cookies();
   const accessToken = cookieStore.get(ACCESS_COOKIE)?.value;
   if (!accessToken) {
-    return null;
+    return isDevPreviewEnabled() ? devPreviewUser() : null;
   }
 
   const auth = createAuthClient();
